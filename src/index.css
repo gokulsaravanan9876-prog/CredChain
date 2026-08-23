@@ -1,0 +1,229 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@400;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* Stitch typography system: Sora for display/headline, Inter for body
+     (already --font-sans), JetBrains Mono for hashes/on-chain/technical
+     metadata and uppercase micro-labels. Swapping this one value re-fonts
+     every existing font-[family-name:var(--font-display)] heading already
+     in the app with zero JSX changes. */
+  --font-display: "Sora", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /*
+   * Stitch "Cinematic Cryptography" dark palette. Single-theme (dark only)
+   * — a deliberate product identity, not a light/dark toggle, so every
+   * token below is the only definition (no prefers-color-scheme branch).
+   * Remapped from Stitch's DESIGN.md (Deep Black / Midnight Navy elevation
+   * model, Indigo->Violet primary, Electric Blue/Cyan secondary, Emerald
+   * verified, Amber mismatch, Red revoked) onto the SAME token names the
+   * app already consumes, so existing components inherit this automatically.
+   */
+
+  /* Neutrals — light-on-dark. canvas = Level 0 "Deep Black" page base,
+     canvas-2 = sunken/sidebar surface (subtle lift off canvas), surface =
+     Level 1 "Midnight Navy" card surface, surface-2 = elevated/hover surface
+     (between Level 1 and the Level 2 glass tier). */
+  --color-ink: #F4F6FB;
+  --color-body: #C7CEDE;
+  --color-muted: #8891A8;
+  --color-faint: #5B6478;
+  --color-line: rgba(255, 255, 255, 0.10);
+  --color-line-strong: rgba(255, 255, 255, 0.18);
+  --color-surface: #0A0F1E;
+  --color-surface-2: #131A2E;
+  --color-canvas: #050505;
+  --color-canvas-2: #08090D;
+  --color-ink-9: #0B1220;
+
+  /* Primary — Indigo (solid fills, gradient start, primary text/icons) */
+  --color-primary: #4F46E5;
+  --color-primary-dark: #3730A3;
+  --color-primary-bg: rgba(79, 70, 229, 0.14);
+  --color-primary-line: rgba(79, 70, 229, 0.38);
+
+  /* AI — Violet (gradient end partner to primary, AI-generated content) */
+  --color-ai: #A78BFA;
+  --color-ai-bg: rgba(167, 139, 250, 0.14);
+  --color-ai-line: rgba(167, 139, 250, 0.38);
+
+  /* Secondary — Cyan / Electric Blue (cryptographic status, student world) */
+  --color-cyan: #4CD7F6;
+  --color-cyan-bg: rgba(76, 215, 246, 0.14);
+  --color-cyan-line: rgba(76, 215, 246, 0.38);
+  --color-electric: #38BDF8;
+
+  /* Company/verifier-world accent (not a core Stitch token — kept compatible) */
+  --color-magenta: #E879F9;
+
+  /* Verified — Emerald */
+  --color-good: #4EDEA3;
+  --color-good-bg: rgba(78, 222, 163, 0.13);
+  --color-good-line: rgba(78, 222, 163, 0.38);
+
+  /* Mismatch — Amber/Orange */
+  --color-warn: #F5A524;
+  --color-warn-bg: rgba(245, 165, 36, 0.13);
+  --color-warn-line: rgba(245, 165, 36, 0.38);
+
+  /* Revoked/Invalid — Red */
+  --color-bad: #F87171;
+  --color-bad-bg: rgba(248, 113, 113, 0.13);
+  --color-bad-line: rgba(248, 113, 113, 0.38);
+
+  /* Glass surfaces — Level 2 "Float": translucent Midnight Navy + subtle border */
+  --color-glass: rgba(10, 15, 30, 0.60);
+  --color-glass-border: rgba(255, 255, 255, 0.10);
+
+  /* Shape — aligned to Stitch's rounded scale (sm/DEFAULT/md/lg/xl/full).
+     Cascades to every existing rounded-* utility already used across the
+     app; which specific step each component reaches for (container vs.
+     pill CTA) is a Phase 2 concern, not this token pass. */
+  --radius-sm: 0.25rem;
+  --radius: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+}
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  :root {
+    color-scheme: dark;
+  }
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-body);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  * {
+    border-color: var(--color-line);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--color-line-strong);
+    border-radius: 999px;
+  }
+
+  /* Base glass-surface material (Stitch "Level 2 — Float") — used by GlassPanel
+     and every card built on it. Adds the spec's thin glowing top-edge
+     highlight via an inset box-shadow rather than a second border, so it
+     layers cleanly with any border-* utility a component already applies. */
+  .glass-surface {
+    background-color: var(--color-glass);
+    border: 1px solid var(--color-glass-border);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+
+  /* Soft colored "glow shadows" (Stitch spec: diffused, low-opacity tinted
+     drop-shadows in place of generic heavy black shadows). Additive utility
+     classes — not yet applied to any component by this token pass. */
+  .shadow-glow-primary {
+    box-shadow: 0 10px 30px -4px rgba(79, 70, 229, 0.35);
+  }
+  .shadow-glow-ai {
+    box-shadow: 0 10px 30px -4px rgba(167, 139, 250, 0.35);
+  }
+  .shadow-glow-cyan {
+    box-shadow: 0 10px 30px -4px rgba(76, 215, 246, 0.30);
+  }
+  .shadow-glow-good {
+    box-shadow: 0 10px 30px -4px rgba(78, 222, 163, 0.30);
+  }
+  .shadow-glow-warn {
+    box-shadow: 0 10px 30px -4px rgba(245, 165, 36, 0.30);
+  }
+  .shadow-glow-bad {
+    box-shadow: 0 10px 30px -4px rgba(248, 113, 113, 0.30);
+  }
+
+  /* Background foundation — faint grid/dot/circuit atmosphere. Reusable
+     utility classes; not applied anywhere by this token pass (RoleBackground
+     already builds its own layered background and is out of scope this
+     phase — these exist so later phases can reach for a shared class
+     instead of re-authoring the same background-image each time). */
+  .bg-grid-faint {
+    background-image:
+      linear-gradient(to right, #ffffff 1px, transparent 1px),
+      linear-gradient(to bottom, #ffffff 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+  .bg-dot-faint {
+    background-image: radial-gradient(#ffffff 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  /* Very low-opacity hexagonal "circuit" texture (Stitch: "Crypto-Geometry",
+     3-5% opacity) — a single tileable conic-gradient hex lattice, no image asset. */
+  .bg-circuit-faint {
+    background-image:
+      conic-gradient(from 90deg at 1px 1px, transparent 90deg, #ffffff 0deg 1deg, transparent 1deg);
+    background-size: 32px 28px;
+    opacity: 0.04;
+  }
+
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+  .preserve-3d {
+    transform-style: preserve-3d;
+  }
+  .backface-hidden {
+    backface-visibility: hidden;
+  }
+}
+
+/* Motion primitives used by Modal, Toast, and result-reveal transitions.
+   Kept subtle and short (150-220ms) — Tailwind's motion-safe: variant already
+   gates all of these behind prefers-reduced-motion. */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes revealIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Ambient/3D motion vocabulary — reused by RoleBackground, Glow, and CredentialCard3D.
+   Kept slow and small-amplitude ("restrained motion" per the design brief); every
+   consumer applies these only inside a motion-safe: variant. */
+@keyframes driftSlow {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(2%, -3%, 0) scale(1.04); }
+}
+@keyframes floatCard {
+  0%, 100% { transform: translateY(0) rotateX(6deg) rotateY(-10deg); }
+  50% { transform: translateY(-10px) rotateX(4deg) rotateY(-8deg); }
+}
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.85; }
+}
+@keyframes gridPan {
+  from { background-position: 0 0; }
+  to { background-position: 48px 48px; }
+}

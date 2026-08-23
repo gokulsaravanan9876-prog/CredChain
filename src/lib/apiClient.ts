@@ -1,0 +1,92 @@
+// ---------------------------------------------------------------------------
+// Central HTTP client for talking to the FastAPI backend.
+//
+// This is the ONE place that: knows the API base URL, attaches the JWT
+// (via setAuthToken), and turns a non-2xx response into a typed ApiError.
+// Nothing else in the app should call fetch() directly against the backend —
+// keeps token handling from being scattered across components.
+// ---------------------------------------------------------------------------
+
+const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'
+
+let authToken: string | null = null
+
+export function setAuthToken(token: string | null) {
+  authToken = token
+}
+
+/** status 0 means the request never reached the server (network/CORS failure) — surfaced as "server unavailable". */
+export class ApiError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+function authHeader(): HeadersInit {
+  return authToken ? { Authorization: `Bearer ${authToken}` } : {}
+}
+
+async function handleErrorAndAuth(response: Response): Promise<void> {
+  if (response.status === 401) {
+    // Token missing/invalid/expired — clear it and let AuthContext react
+    // (redirects to /login) without every caller needing to know about auth.
+    setAuthToken(null)
+    window.dispatchEvent(new CustomEvent('credchain:unauthorized'))
+  }
+
+  if (!response.ok) {
+    let detail = `Request failed (${response.status})`
+    try {
+      const body = await response.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      // response wasn't JSON — keep the default detail message
+    }
+    throw new ApiError(response.status, detail)
+  }
+}
+
+async function fetchSafe(path: string, options: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${API_BASE_URL}${path}`, options)
+  } catch {
+    throw new ApiError(0, 'Server unavailable. Check your connection and try again.')
+  }
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetchSafe(path, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...authHeader(), ...options.headers },
+  })
+  await handleErrorAndAuth(response)
+  if (response.status === 204) return undefined as T
+  return (await response.json()) as T
+}
+
+/** For multipart/form-data (file uploads) — deliberately does NOT set Content-Type, so the browser can add its own boundary. */
+async function requestForm<T>(path: string, formData: FormData, method = 'POST'): Promise<T> {
+  const response = await fetchSafe(path, { method, body: formData, headers: authHeader() })
+  await handleErrorAndAuth(response)
+  return (await response.json()) as T
+}
+
+/** For downloading a protected binary response (e.g. a credential's document) as a Blob. */
+async function requestBlob(path: string): Promise<Blob> {
+  const response = await fetchSafe(path, { headers: authHeader() })
+  await handleErrorAndAuth(response)
+  return response.blob()
+}
+
+export const apiClient = {
+  get: <T>(path: string) => request<T>(path, { method: 'GET' }),
+  post: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  postForm: <T>(path: string, formData: FormData) => requestForm<T>(path, formData),
+  getBlob: (path: string) => requestBlob(path),
+}

@@ -1,0 +1,27 @@
+# Phase 1 — core app, DB, migrations
+fastapi==0.118.0
+uvicorn[standard]==0.37.0
+sqlalchemy==2.0.44
+alembic==1.16.5
+psycopg2-binary==2.9.10
+pydantic-settings==2.11.0
+python-dotenv==1.1.1
+
+# Phase 3 — auth
+argon2-cffi==25.1.0
+pyjwt==2.10.1
+email-validator==2.2.0
+
+# Phase 4 — credential issuance, signing, file upload
+cryptography==44.0.1
+python-multipart==0.0.20
+
+# Phase 7 — AI (student intelligence)
+anthropic==0.69.0
+
+# Phase 9A/9B — blockchain credential-hash anchoring
+web3==7.16.0
+
+# Dev/test
+pytest==8.3.5
+httpx==0.28.1
