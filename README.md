@@ -3,7 +3,7 @@
 **[Open CredChain Live Demo](https://cred-chain-one.vercel.app)**
 # CredChain — Frontend
 
-Student-owned academic credential passport. Three portals (Student / Institution / Verifier) in one codebase, built against the Figma screens with mocked data — no backend required to run.
+Student-owned academic credential passport with Student, Institution, and Company/Verifier portals, integrated with a FastAPI backend, PostgreSQL database, authentication, credential verification, sharing, and AI-assisted analysis.
 
 ## Run it
 
