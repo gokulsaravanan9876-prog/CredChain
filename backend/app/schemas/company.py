@@ -15,6 +15,10 @@ class CompanyProfileResponse(BaseModel):
     location: str | None
     company_size: str | None
     created_at: datetime
+    # Not an ORM column — computed per-request (see company_service.to_response)
+    # as a real count of this company's OPEN jobs, so the directory card/profile
+    # can show it without the frontend fetching every job for every company.
+    open_positions_count: int = 0
 
     model_config = {"from_attributes": True}
 

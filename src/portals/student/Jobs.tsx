@@ -32,25 +32,34 @@ export function Jobs() {
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<EligFilter>('all')
+  const [hasSearched, setHasSearched] = useState(false)
 
+  // Backend-driven search (GET /api/jobs?search=...), debounced so it doesn't
+  // fire a request per keystroke. The backend `search` param matches title,
+  // description, AND company name — same fields this page has always let a
+  // student search by — so this is a pure refactor, not a behavior change.
+  // The eligibility pill filter stays client-side: it's not a stable query
+  // filter (eligibility is computed per-student per-request), just a view
+  // over whatever the current search already returned.
   useEffect(() => {
-    getOpenJobs()
-      .then(setJobs)
-      .finally(() => setLoading(false))
-  }, [])
+    const handle = setTimeout(() => {
+      setLoading(true)
+      getOpenJobs(query.trim() ? { search: query.trim() } : undefined)
+        .then((data) => {
+          setJobs(data)
+          setHasSearched(true)
+        })
+        .finally(() => setLoading(false))
+    }, 300)
+    return () => clearTimeout(handle)
+  }, [query])
 
   const filtered = useMemo(() => {
-    return jobs.filter((j) => {
-      const matchesQuery = j.title.toLowerCase().includes(query.toLowerCase()) || j.company_name.toLowerCase().includes(query.toLowerCase())
-      const matchesFilter =
-        filter === 'all' ||
-        (filter === 'eligible' && j.eligibility?.status === 'eligible') ||
-        (filter === 'incomplete' && j.eligibility?.status === 'incomplete')
-      return matchesQuery && matchesFilter
-    })
-  }, [jobs, query, filter])
+    if (filter === 'all') return jobs
+    return jobs.filter((j) => filter === 'eligible' ? j.eligibility?.status === 'eligible' : j.eligibility?.status === 'incomplete')
+  }, [jobs, filter])
 
-  if (loading) return <div className="space-y-4"><SkeletonCard lines={3} /><SkeletonCard lines={3} /></div>
+  if (loading && jobs.length === 0) return <div className="space-y-4"><SkeletonCard lines={3} /><SkeletonCard lines={3} /></div>
 
   return (
     <div>
@@ -72,11 +81,17 @@ export function Jobs() {
         />
       </div>
 
-      {filtered.length === 0 ? (
+      {filtered.length === 0 && hasSearched ? (
         <EmptyState
           icon={Briefcase}
           title="No open jobs"
-          description={jobs.length === 0 ? 'No companies have published a job yet.' : 'Try a different search term or filter.'}
+          description={
+            jobs.length === 0
+              ? query
+                ? `No open jobs found matching "${query}".`
+                : 'No companies have published a job yet.'
+              : 'Try a different search term or filter.'
+          }
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

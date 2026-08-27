@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -13,10 +13,17 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
 @router.get("", response_model=list[JobResponse], summary="List real, currently-open jobs — honest empty state if none exist")
-def list_open_jobs(current_user: User = Depends(require_student), db: Session = Depends(get_db)) -> list[JobResponse]:
+def list_open_jobs(
+    search: str | None = Query(default=None, description="Matches job title or description"),
+    company_id: uuid.UUID | None = Query(default=None, description="Restrict to one company's open jobs — e.g. a company's profile page"),
+    location: str | None = Query(default=None),
+    degree: str | None = Query(default=None, description="Matches the job's required_degree"),
+    current_user: User = Depends(require_student),
+    db: Session = Depends(get_db),
+) -> list[JobResponse]:
     if current_user.student is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No student profile for this account")
-    jobs = job_service.list_open_jobs(db)
+    jobs = job_service.list_open_jobs(db, search=search, company_id=company_id, location=location, degree=degree)
     return [job_service.to_response(j, student=current_user.student, db=db) for j in jobs]
 
 

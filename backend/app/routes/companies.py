@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -26,15 +26,21 @@ def _company_of(current_user: User) -> Company:
     response_model=list[CompanyProfileResponse],
     summary="List real companies — public, used by students browsing genuine company profiles (never a source of fabricated company data)",
 )
-def list_companies(db: Session = Depends(get_db)) -> list[CompanyProfileResponse]:
-    return [CompanyProfileResponse.model_validate(c) for c in company_service.list_companies(db)]
+def list_companies(
+    search: str | None = Query(default=None, description="Matches company name, industry, or location"),
+    industry: str | None = Query(default=None),
+    location: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> list[CompanyProfileResponse]:
+    companies = company_service.list_companies(db, search=search, industry=industry, location=location)
+    return [company_service.to_response(db, c) for c in companies]
 
 
 @router.get("/me", response_model=CompanyProfileResponse, summary="The authenticated company's own profile")
-def get_my_profile(current_user: User = Depends(require_verifier)) -> CompanyProfileResponse:
+def get_my_profile(current_user: User = Depends(require_verifier), db: Session = Depends(get_db)) -> CompanyProfileResponse:
     if current_user.company is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No company profile for this account")
-    return CompanyProfileResponse.model_validate(current_user.company)
+    return company_service.to_response(db, current_user.company)
 
 
 @router.patch("/me", response_model=CompanyProfileResponse, summary="Update the authenticated company's own profile — never another company's")
@@ -46,7 +52,7 @@ def update_my_profile(
     if current_user.company is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No company profile for this account")
     updated = company_service.update_profile(db, current_user.company, payload)
-    return CompanyProfileResponse.model_validate(updated)
+    return company_service.to_response(db, updated)
 
 
 @router.post("/me/jobs", response_model=JobResponse, status_code=status.HTTP_201_CREATED, summary="Create a new job posting — starts as DRAFT, not visible to students until published")
@@ -154,4 +160,4 @@ def get_company(company_id: uuid.UUID, db: Session = Depends(get_db)) -> Company
     company = db.get(Company, company_id)
     if company is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
-    return CompanyProfileResponse.model_validate(company)
+    return company_service.to_response(db, company)

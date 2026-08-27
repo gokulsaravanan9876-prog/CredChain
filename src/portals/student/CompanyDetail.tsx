@@ -22,10 +22,10 @@ export function CompanyDetail() {
 
   useEffect(() => {
     if (!id) return
-    Promise.all([getRealCompany(id), getOpenJobs()])
-      .then(([c, allJobs]) => {
+    Promise.all([getRealCompany(id), getOpenJobs({ companyId: id })])
+      .then(([c, companyJobs]) => {
         setCompany(c)
-        setJobs(allJobs.filter((j) => j.company_id === id))
+        setJobs(companyJobs)
       })
       .finally(() => setLoading(false))
   }, [id])

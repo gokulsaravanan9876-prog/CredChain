@@ -24,18 +24,32 @@ class Institution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     Phase 4/5 generates the keypair). It's safe to expose via the API; the
     matching private key never lives in this table or anywhere the ORM
     touches — see app/security/signatures.py (added Phase 4).
+
+    user_id is nullable: a row with user_id=None is a directory-only listing
+    (seeded from a curated public dataset, see scripts/seed_directory.py) —
+    discoverable and linkable by a student, but with no CredChain login and
+    therefore never able to issue credentials itself. A real institution
+    that registers keeps (or gains) a non-null user_id exactly as before;
+    nothing about the existing login-linked path changes.
     """
 
     __tablename__ = "institutions"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     registration_number: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
     public_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Public directory fields — all optional, populated either by the seed
+    # script (backend/scripts/seed_directory.py) or left blank for a real
+    # institution that hasn't filled them in, never fabricated in the UI.
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    website: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    institution_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
-    user: Mapped[User] = relationship(back_populates="institution")
+    user: Mapped[User | None] = relationship(back_populates="institution")
     students: Mapped[list[Student]] = relationship(back_populates="institution")
     credentials: Mapped[list[Credential]] = relationship(back_populates="institution")
     institution_certificate_requests: Mapped[list[InstitutionCertificateRequest]] = relationship(back_populates="institution")

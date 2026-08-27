@@ -20,12 +20,22 @@ if TYPE_CHECKING:
 
 
 class Company(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """The "verifier" role's profile — named Company to match the DB entity list; the frontend/API role value stays 'verifier'."""
+    """
+    The "verifier" role's profile — named Company to match the DB entity list; the frontend/API role value stays 'verifier'.
+
+    user_id is nullable: a row with user_id=None is a directory-only listing
+    (seeded from a curated public dataset, see scripts/seed_directory.py) —
+    discoverable by a student, but with no CredChain login and therefore
+    never able to post jobs or receive applications itself (posting a job
+    requires require_verifier, which requires a real logged-in user). A real
+    company that registers keeps (or gains) a non-null user_id exactly as
+    before; nothing about the existing login-linked path changes.
+    """
 
     __tablename__ = "companies"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     industry: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -37,7 +47,7 @@ class Company(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     company_size: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    user: Mapped[User] = relationship(back_populates="company")
+    user: Mapped[User | None] = relationship(back_populates="company")
     credential_requests: Mapped[list[CredentialRequest]] = relationship(back_populates="company")
     share_grants: Mapped[list[ShareGrant]] = relationship(back_populates="company")
     verification_events: Mapped[list[VerificationEvent]] = relationship(back_populates="company")

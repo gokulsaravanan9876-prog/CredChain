@@ -29,10 +29,20 @@ export interface AuthUser {
   student_institution_name: string | null
 }
 
-/** Public-safe institution listing — GET /api/institutions. */
+/**
+ * Public-safe institution profile — GET /api/institutions (list) and
+ * GET /api/institutions/{id} (detail). description/location/website/
+ * institution_type are optional: a real institution that hasn't filled
+ * them in (or a login-linked institution seeded before this field existed)
+ * simply has them as null, never a fabricated placeholder.
+ */
 export interface InstitutionSummary {
   id: string
   name: string
+  description: string | null
+  location: string | null
+  website: string | null
+  institution_type: string | null
 }
 
 export interface AuthTokenResponse {
@@ -434,6 +444,8 @@ export interface Company {
   location: string | null
   company_size: string | null
   created_at: string
+  /** Real count of this company's currently-OPEN jobs, computed server-side. */
+  open_positions_count: number
 }
 
 export interface UpdateCompanyProfileInput {

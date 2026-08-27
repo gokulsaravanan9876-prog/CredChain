@@ -58,9 +58,27 @@ export async function register(payload: RegisterPayload): Promise<AuthTokenRespo
   return apiClient.post<AuthTokenResponse>('/auth/register', payload)
 }
 
-/** Public — real institutions a student can pick from (never a free-typed id). */
-export async function getInstitutions(): Promise<InstitutionSummary[]> {
-  return apiClient.get<InstitutionSummary[]>('/institutions')
+function toQueryString(params: Record<string, string | undefined>): string {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value) search.set(key, value)
+  }
+  const qs = search.toString()
+  return qs ? `?${qs}` : ''
+}
+
+/**
+ * Public — real institutions. Used both by the registration/link-institution
+ * picker (no args — needs the full list) and by the student Institution
+ * Directory (search/location/country — same endpoint, richer query).
+ */
+export async function getInstitutions(filters?: { search?: string; location?: string; country?: string }): Promise<InstitutionSummary[]> {
+  return apiClient.get<InstitutionSummary[]>(`/institutions${toQueryString(filters ?? {})}`)
+}
+
+/** Public — one institution's directory profile. */
+export async function getInstitution(id: string): Promise<InstitutionSummary> {
+  return apiClient.get<InstitutionSummary>(`/institutions/${id}`)
 }
 
 /** Links (or re-links) the authenticated student to a real institution, validated server-side. */
@@ -601,8 +619,8 @@ export async function downloadSharedCredentialDocument(credentialId: string): Pr
 
 // ---- Company profiles (real backend, job marketplace phase) ---------------------------
 
-export async function getRealCompanies(): Promise<Company[]> {
-  return apiClient.get<Company[]>('/companies')
+export async function getRealCompanies(filters?: { search?: string; industry?: string; location?: string }): Promise<Company[]> {
+  return apiClient.get<Company[]>(`/companies${toQueryString(filters ?? {})}`)
 }
 
 export async function getRealCompany(id: string): Promise<Company> {
@@ -639,8 +657,14 @@ export async function getMyJobs(): Promise<Job[]> {
   return apiClient.get<Job[]>('/companies/me/jobs')
 }
 
-export async function getOpenJobs(): Promise<Job[]> {
-  return apiClient.get<Job[]>('/jobs')
+export async function getOpenJobs(filters?: { search?: string; companyId?: string; location?: string; degree?: string }): Promise<Job[]> {
+  const qs = toQueryString({
+    search: filters?.search,
+    company_id: filters?.companyId,
+    location: filters?.location,
+    degree: filters?.degree,
+  })
+  return apiClient.get<Job[]>(`/jobs${qs}`)
 }
 
 export async function getJob(jobId: string): Promise<Job> {

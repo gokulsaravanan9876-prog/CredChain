@@ -1,5 +1,6 @@
 import uuid
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..models.company import Company
@@ -118,8 +119,34 @@ def list_jobs_for_company(db: Session, company: Company) -> list[Job]:
     return db.query(Job).filter(Job.company_id == company.id).order_by(Job.created_at.desc()).all()
 
 
-def list_open_jobs(db: Session) -> list[Job]:
-    return db.query(Job).filter(Job.status == JobStatus.OPEN).order_by(Job.created_at.desc()).all()
+def list_open_jobs(
+    db: Session,
+    *,
+    search: str | None = None,
+    company_id: uuid.UUID | None = None,
+    location: str | None = None,
+    degree: str | None = None,
+) -> list[Job]:
+    """
+    search matches title/description/company name (the student Jobs page has always let a
+    student search by company name too — the backend filter has to cover that or switching
+    the frontend to it would be a regression, not a pure refactor). degree is a substring
+    match against required_degree (same free-text matching the eligibility check itself uses
+    — no separate degree vocabulary).
+    """
+    query = db.query(Job).filter(Job.status == JobStatus.OPEN)
+    if search:
+        needle = f"%{search.strip()}%"
+        query = query.join(Company, Job.company_id == Company.id).filter(
+            or_(Job.title.ilike(needle), Job.description.ilike(needle), Company.name.ilike(needle))
+        )
+    if company_id is not None:
+        query = query.filter(Job.company_id == company_id)
+    if location:
+        query = query.filter(Job.location.ilike(f"%{location.strip()}%"))
+    if degree:
+        query = query.filter(Job.required_degree.ilike(f"%{degree.strip()}%"))
+    return query.order_by(Job.created_at.desc()).all()
 
 
 def get_open_job_or_applied(db: Session, job_id: uuid.UUID, student: Student | None) -> Job:

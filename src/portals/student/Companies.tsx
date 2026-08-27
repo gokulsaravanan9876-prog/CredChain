@@ -31,16 +31,24 @@ export function Companies() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
+  const [hasSearched, setHasSearched] = useState(false)
 
+  // Backend-driven search (GET /api/companies?search=...), debounced so it
+  // doesn't fire a request per keystroke — same pattern as Institutions.tsx.
   useEffect(() => {
-    getRealCompanies()
-      .then(setCompanies)
-      .finally(() => setLoading(false))
-  }, [])
+    const handle = setTimeout(() => {
+      setLoading(true)
+      getRealCompanies(query.trim() ? { search: query.trim() } : undefined)
+        .then((data) => {
+          setCompanies(data)
+          setHasSearched(true)
+        })
+        .finally(() => setLoading(false))
+    }, 300)
+    return () => clearTimeout(handle)
+  }, [query])
 
-  const filtered = companies.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))
-
-  if (loading) return <div className="grid grid-cols-1 gap-4 sm:grid-cols-2"><SkeletonCard lines={3} /><SkeletonCard lines={3} /></div>
+  if (loading && companies.length === 0) return <div className="grid grid-cols-1 gap-4 sm:grid-cols-2"><SkeletonCard lines={3} /><SkeletonCard lines={3} /></div>
 
   return (
     <div>
@@ -53,15 +61,15 @@ export function Companies() {
         className="mb-5 max-w-xs"
       />
 
-      {filtered.length === 0 ? (
+      {companies.length === 0 && hasSearched ? (
         <EmptyState
           icon={Building2}
-          title="No companies yet"
-          description={companies.length === 0 ? 'No companies have registered on CredChain yet.' : 'Try a different search term.'}
+          title="No companies found"
+          description={query ? `No companies found matching "${query}".` : 'No companies have registered on CredChain yet.'}
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {filtered.map((c) => (
+          {companies.map((c) => (
             <Link key={c.id} to={`/student/companies/${c.id}`} className="group">
               <GlassPanel className="relative flex h-full flex-col gap-3 overflow-hidden p-5 transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:border-primary-line">
                 <div className="flex items-start justify-between gap-3">

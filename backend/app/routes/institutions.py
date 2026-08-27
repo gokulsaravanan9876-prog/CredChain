@@ -1,7 +1,7 @@
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -17,7 +17,7 @@ from ..schemas.institution import InstitutionSummaryResponse
 from ..schemas.institution_request import InstitutionCertificateRequestResponse, RejectInstitutionRequestBody
 from ..schemas.student_document import ApproveStudentDocumentBody, RejectStudentDocumentBody, StudentDocumentResponse
 from ..security.permissions import require_institution
-from ..services import credential_service, institution_request_service, student_document_service
+from ..services import credential_service, institution_request_service, institution_service, student_document_service
 from ..services.credential_service import (
     CredentialValidationError,
     StudentNotAffiliatedError,
@@ -32,11 +32,28 @@ router = APIRouter(prefix="/api/institutions", tags=["institutions"])
 @router.get(
     "",
     response_model=list[InstitutionSummaryResponse],
-    summary="List legitimate institutions — public, used to let a student pick a real institution to link to (never a way to invent one)",
+    summary="List legitimate institutions — public. Used both to let a student pick a real institution to link to, and by the student Institution Directory (search/location/country filters are additive; never a way to invent an institution)",
 )
-def list_institutions(db: Session = Depends(get_db)) -> list[InstitutionSummaryResponse]:
-    institutions = db.query(Institution).order_by(Institution.name).all()
+def list_institutions(
+    search: str | None = Query(default=None, description="Matches institution name or location"),
+    location: str | None = Query(default=None),
+    country: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> list[InstitutionSummaryResponse]:
+    institutions = institution_service.list_institutions(db, search=search, location=location, country=country)
     return [InstitutionSummaryResponse.model_validate(i) for i in institutions]
+
+
+@router.get(
+    "/{institution_id}",
+    response_model=InstitutionSummaryResponse,
+    summary="View one institution's public directory profile",
+)
+def get_institution(institution_id: uuid.UUID, db: Session = Depends(get_db)) -> InstitutionSummaryResponse:
+    institution = institution_service.get_institution(db, institution_id)
+    if institution is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Institution not found")
+    return InstitutionSummaryResponse.model_validate(institution)
 
 
 def _institution_of(current_user: User) -> Institution:

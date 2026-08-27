@@ -20,6 +20,8 @@ import { JobDetail } from './portals/student/JobDetail'
 import { MyApplications } from './portals/student/MyApplications'
 import { Companies } from './portals/student/Companies'
 import { CompanyDetail } from './portals/student/CompanyDetail'
+import { Institutions } from './portals/student/Institutions'
+import { InstitutionDetail } from './portals/student/InstitutionDetail'
 import { Requests } from './portals/student/Requests'
 import { ShareFlow } from './portals/student/ShareFlow'
 import { ShareConfirmation } from './portals/student/ShareConfirmation'
@@ -135,6 +137,8 @@ function AppRoutes() {
           <Route path="jobs" element={<StudentJobs />} />
           <Route path="jobs/:id" element={<JobDetail />} />
           <Route path="my-applications" element={<MyApplications />} />
+          <Route path="institutions" element={<Institutions />} />
+          <Route path="institutions/:id" element={<InstitutionDetail />} />
           <Route path="companies" element={<Companies />} />
           <Route path="companies/:id" element={<CompanyDetail />} />
           <Route path="requests" element={<Requests />} />
