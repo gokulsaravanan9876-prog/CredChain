@@ -75,7 +75,7 @@ function toQueryString(params: Record<string, string | number | undefined>): str
 // pagination UI. The dedicated Directory pages (Institutions.tsx/Companies.tsx) use
 // getInstitutionsPage/getCompaniesPage below for real, page-by-page browsing of the whole
 // (potentially tens-of-thousands-of-rows) dataset instead.
-const LEGACY_FULL_LIST_PAGE_SIZE = 500
+const LEGACY_FULL_LIST_PAGE_SIZE = 100
 
 /**
  * Public — real institutions, unwrapped to a plain array. Used by the
