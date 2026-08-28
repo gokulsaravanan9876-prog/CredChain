@@ -21,7 +21,10 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 24
 
     # --- CORS ---
-    cors_origins: str = "http://localhost:5173"
+    # Comma-separated. Render's CORS_ORIGINS env var (if set) overrides this default entirely —
+    # this fallback exists so the deployed API still allows the known production frontend even
+    # if that env var is unset or stale.
+    cors_origins: str = "http://localhost:5173,https://cred-chain-five.vercel.app"
 
     # --- Sharing (Phase 6) ---
     # Base URL used to build share links (e.g. http://localhost:5173/share/verify/<token>).
