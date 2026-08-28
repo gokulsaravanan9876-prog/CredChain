@@ -61,10 +61,24 @@ export function SignUp() {
   const [companyWebsite, setCompanyWebsite] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [institutionsLoading, setInstitutionsLoading] = useState(false)
+  const [institutionsError, setInstitutionsError] = useState<string | null>(null)
 
+  // Debounced, backend-searched (not a client-side filter over a fixed snapshot — the directory
+  // now holds 10,000+ real institutions, so only the matching page is ever fetched). Mirrors the
+  // debounce pattern already used by the full Institutions directory page.
   useEffect(() => {
-    if (role === 'student') getInstitutions().then(setInstitutions)
-  }, [role])
+    if (role !== 'student') return
+    const handle = setTimeout(() => {
+      setInstitutionsLoading(true)
+      setInstitutionsError(null)
+      getInstitutions({ search: institutionSearch.trim() || undefined })
+        .then(setInstitutions)
+        .catch((err) => setInstitutionsError(err instanceof ApiError ? err.message : 'Could not load institutions.'))
+        .finally(() => setInstitutionsLoading(false))
+    }, 300)
+    return () => clearTimeout(handle)
+  }, [role, institutionSearch])
 
   if (user) return <Navigate to={ROLE_HOME[user.role]} replace />
 
@@ -89,7 +103,19 @@ export function SignUp() {
     }
 
     try {
-      const registeredUser = await register(payload)
+      let registeredUser
+      try {
+        registeredUser = await register(payload)
+      } catch (err) {
+        // A status-0 ApiError means fetch() itself never got a response — a one-off network
+        // blip, not a real backend failure. One retry avoids a false "Server unavailable" for
+        // an account creation attempt that would otherwise have succeeded a moment later.
+        if (err instanceof ApiError && err.status === 0) {
+          registeredUser = await register(payload)
+        } else {
+          throw err
+        }
+      }
       navigate(ROLE_HOME[registeredUser.role], { replace: true })
     } catch (err) {
       if (err instanceof ApiError) {
@@ -190,14 +216,17 @@ export function SignUp() {
                   </div>
                   <Select value={institutionId} onChange={(e) => setInstitutionId(e.target.value)} className="mt-1">
                     <option value="">No institution selected</option>
-                    {institutions
-                      .filter((i) => i.name.toLowerCase().includes(institutionSearch.trim().toLowerCase()))
-                      .map((i) => (
-                        <option key={i.id} value={i.id}>
-                          {i.name}
-                        </option>
-                      ))}
+                    {institutions.map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.name}
+                      </option>
+                    ))}
                   </Select>
+                  {institutionsLoading && <p className="ml-1 text-[12px] text-faint">Searching institutions…</p>}
+                  {!institutionsLoading && !institutionsError && institutionSearch.trim() && institutions.length === 0 && (
+                    <p className="ml-1 text-[12px] text-faint">No institutions matched "{institutionSearch.trim()}" — you can still create your account and link one later.</p>
+                  )}
+                  {institutionsError && <p className="ml-1 text-[12px] text-bad">{institutionsError} — you can still create your account and link one later.</p>}
                 </div>
               </>
             )}
