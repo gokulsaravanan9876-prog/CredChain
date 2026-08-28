@@ -56,6 +56,7 @@ export function MyApplications() {
   function load() {
     return getMyJobApplications()
       .then(setApplications)
+      .catch((err) => setError(err instanceof ApiError ? err.message : 'Unable to load your applications. Please try again.'))
       .finally(() => setLoading(false))
   }
 
@@ -85,7 +86,7 @@ export function MyApplications() {
       {error && <div className="mb-5 max-w-2xl rounded-lg bg-bad-bg px-3.5 py-2.5 text-[13px] text-bad">{error}</div>}
 
       {applications.length === 0 ? (
-        <EmptyState icon={FileStack} title="No applications yet" description="Apply to a job to see it tracked here." />
+        !error && <EmptyState icon={FileStack} title="No applications yet" description="Apply to a job to see it tracked here." />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {applications.map((a) => {

@@ -64,6 +64,7 @@ export function CertificateRequests() {
   function load() {
     getMyCertificateRequests()
       .then(setRequests)
+      .catch((err) => setError(err instanceof ApiError ? err.message : 'Unable to load certificate requests. Please try again.'))
       .finally(() => setLoading(false))
   }
 
@@ -197,12 +198,16 @@ export function CertificateRequests() {
         )}
       </div>
 
+      {error && !showForm && <div className="mb-5 max-w-lg rounded-lg bg-bad-bg px-3.5 py-2.5 text-[13px] text-bad">{error}</div>}
+
       {groups.length === 0 ? (
-        <EmptyState
-          icon={ClipboardList}
-          title="No certificate requests yet"
-          description="Request a transcript, degree, or other certificate directly from your institution."
-        />
+        !error && (
+          <EmptyState
+            icon={ClipboardList}
+            title="No certificate requests yet"
+            description="Request a transcript, degree, or other certificate directly from your institution."
+          />
+        )
       ) : (
         <div className="space-y-3">
           {groups.map((g) => (

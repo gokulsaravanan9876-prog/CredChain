@@ -17,7 +17,12 @@ export function InstitutionLink() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (linking) getInstitutions().then(setInstitutions)
+    if (linking) {
+      setError(null)
+      getInstitutions()
+        .then(setInstitutions)
+        .catch((err) => setError(err instanceof ApiError ? err.message : 'Unable to load institutions. Please try again.'))
+    }
   }, [linking])
 
   async function handleLink() {

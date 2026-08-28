@@ -82,7 +82,9 @@ export function Applications() {
   }
 
   useEffect(() => {
-    refresh().finally(() => setLoading(false))
+    refresh()
+      .catch((err) => setError(err instanceof ApiError ? err.message : 'Unable to load applications. Please try again.'))
+      .finally(() => setLoading(false))
   }, [])
 
   async function handleVerify(credentialId: string) {
@@ -132,7 +134,7 @@ export function Applications() {
       {error && <div className="mb-5 max-w-5xl rounded-lg bg-bad-bg px-3.5 py-2.5 text-[13px] text-bad">{error}</div>}
 
       {applications.length === 0 ? (
-        <EmptyState icon={FileStack} title="No applications yet" description="Applications to your published jobs will appear here." />
+        !error && <EmptyState icon={FileStack} title="No applications yet" description="Applications to your published jobs will appear here." />
       ) : (
         <div className="max-w-5xl space-y-8">
           {applications.map((a) => {

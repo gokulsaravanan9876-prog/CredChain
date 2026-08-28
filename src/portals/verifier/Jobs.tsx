@@ -62,7 +62,9 @@ export function Jobs() {
   }
 
   useEffect(() => {
-    refresh().finally(() => setLoading(false))
+    refresh()
+      .catch((err) => setError(err instanceof ApiError ? err.message : 'Unable to load jobs. Please try again.'))
+      .finally(() => setLoading(false))
   }, [])
 
   function resetForm() {
@@ -171,6 +173,8 @@ export function Jobs() {
         }
       />
 
+      {error && !showForm && <div className="mb-5 rounded-lg bg-bad-bg px-3.5 py-2.5 text-[13px] text-bad">{error}</div>}
+
       {showForm && (
         <Card className="mb-6 p-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -227,7 +231,7 @@ export function Jobs() {
       )}
 
       {jobs.length === 0 && !showForm ? (
-        <EmptyState icon={Briefcase} title="No jobs yet" description="Create a job posting to get started." />
+        !error && <EmptyState icon={Briefcase} title="No jobs yet" description="Create a job posting to get started." />
       ) : (
         <div className="space-y-4">
           {jobs.map((j) => (

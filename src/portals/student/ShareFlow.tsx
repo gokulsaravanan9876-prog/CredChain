@@ -45,20 +45,26 @@ export function ShareFlow() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    getCredentials().then(setCredentials)
+    getCredentials()
+      .then(setCredentials)
+      .catch((err) => setError(err instanceof ApiError ? err.message : 'Unable to load your credentials. Please try again.'))
     if (requestId) {
-      getStudentRequests().then((reqs) => {
-        const r = reqs.find((x) => x.id === requestId) ?? null
-        setRequest(r)
-        if (r) setRecipient(r.company_name)
-      })
+      getStudentRequests()
+        .then((reqs) => {
+          const r = reqs.find((x) => x.id === requestId) ?? null
+          setRequest(r)
+          if (r) setRecipient(r.company_name)
+        })
+        .catch((err) => setError(err instanceof ApiError ? err.message : 'Unable to load this request. Please try again.'))
     } else {
       if (idsParam) setChecked(new Set(idsParam.split(',')))
       // Direct share: recipient must be a real, existing company — never free text.
-      getRealCompanies().then((cs) => {
-        setCompanies(cs)
-        if (cs.length > 0) setCompanyId(cs[0].id)
-      })
+      getRealCompanies()
+        .then((cs) => {
+          setCompanies(cs)
+          if (cs.length > 0) setCompanyId(cs[0].id)
+        })
+        .catch((err) => setError(err instanceof ApiError ? err.message : 'Unable to load companies. Please try again.'))
     }
   }, [requestId, idsParam])
 
@@ -230,7 +236,7 @@ export function ShareFlow() {
                   </div>
                 </div>
               ) : companies.length === 0 ? (
-                <p className="text-sm text-muted">No companies are registered on CredChain yet.</p>
+                <p className="text-sm text-muted">{error ? 'Unable to load companies.' : 'No companies are registered on CredChain yet.'}</p>
               ) : (
                 <div className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-4 py-3 focus-within:border-electric">
                   <Building2 className="h-5 w-5 shrink-0 text-faint" strokeWidth={2} />
