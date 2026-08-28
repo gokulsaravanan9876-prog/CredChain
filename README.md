@@ -30,6 +30,7 @@ and AI-assisted analysis.
 - Academic credential wallet
 - Credential details and verification status
 - Document upload and review
+- Global institution & company discovery (see [docs/DIRECTORY.md](docs/DIRECTORY.md) for the directory architecture, data sources, and import commands)
 - Job discovery
 - Deterministic eligibility evaluation
 - CGPA, degree, and graduation-year matching

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Landmark, MapPin, Globe, GraduationCap } from 'lucide-react'
+import { Landmark, MapPin, Globe, GraduationCap, ShieldCheck, Info } from 'lucide-react'
 import { getInstitution } from '../../lib/api'
 import { ApiError } from '../../lib/apiClient'
 import type { InstitutionSummary } from '../../types'
@@ -52,18 +52,37 @@ export function InstitutionDetail() {
             <p className="text-[11px] font-bold uppercase tracking-wider text-primary">Institution Directory</p>
             <h1 className="text-2xl font-bold tracking-tight text-ink font-[family-name:var(--font-display)]">{institution.name}</h1>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
+              {institution.is_registered ? (
+                <Badge tone="good" size="sm">
+                  <ShieldCheck className="h-3 w-3" strokeWidth={2.5} /> Registered CredChain Institution
+                </Badge>
+              ) : (
+                <Badge tone="neutral" size="sm" withIcon={false}>
+                  Directory Listing
+                </Badge>
+              )}
               {institution.institution_type && (
                 <Badge tone="primary" size="sm" withIcon={false}>
                   {institution.institution_type}
                 </Badge>
               )}
-              {institution.location && (
-                <span className="flex items-center gap-1"><MapPin className="h-3 w-3" strokeWidth={2} /> {institution.location}</span>
+              {(institution.location || institution.country) && (
+                <span className="flex items-center gap-1"><MapPin className="h-3 w-3" strokeWidth={2} /> {institution.location ?? institution.country}</span>
               )}
             </div>
           </div>
         </div>
       </GlassPanel>
+
+      {!institution.is_registered && (
+        <div className="mb-6 flex items-start gap-2.5 rounded-xl border border-line bg-canvas-2/50 px-4 py-3 text-[13px] text-muted">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-faint" strokeWidth={2} />
+          <p>
+            This is a discoverable directory listing, not a registered CredChain institution — it has no CredChain login and
+            cannot issue credentials through CredChain. The information below is public directory data only.
+          </p>
+        </div>
+      )}
 
       <GlassPanel className="p-5">
         <h3 className="mb-3 text-sm font-bold text-ink">About</h3>

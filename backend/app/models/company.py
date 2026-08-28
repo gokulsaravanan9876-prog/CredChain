@@ -46,6 +46,13 @@ class Company(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     company_size: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Structured location (Phase 2) — see Institution's identical fields for the full rationale.
+    country: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    region: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    logo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     user: Mapped[User | None] = relationship(back_populates="company")
     credential_requests: Mapped[list[CredentialRequest]] = relationship(back_populates="company")

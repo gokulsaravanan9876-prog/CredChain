@@ -30,11 +30,11 @@ export interface AuthUser {
 }
 
 /**
- * Public-safe institution profile — GET /api/institutions (list) and
- * GET /api/institutions/{id} (detail). description/location/website/
- * institution_type are optional: a real institution that hasn't filled
- * them in (or a login-linked institution seeded before this field existed)
- * simply has them as null, never a fabricated placeholder.
+ * Public-safe institution profile — GET /api/institutions (list, paginated —
+ * see Page<T>) and GET /api/institutions/{id} (detail). Every field besides
+ * id/name/is_registered is optional: a real institution that hasn't filled
+ * it in (or a directory record a source didn't provide it for) simply has
+ * it as null, never a fabricated placeholder.
  */
 export interface InstitutionSummary {
   id: string
@@ -43,6 +43,23 @@ export interface InstitutionSummary {
   location: string | null
   website: string | null
   institution_type: string | null
+  country: string | null
+  region: string | null
+  city: string | null
+  logo_url: string | null
+  /** e.g. "manual_curated", "hipolabs_world_universities" — null for a directly-registered institution. */
+  source: string | null
+  /** true only when this institution has a real CredChain login (user_id set) — see backend/app/services/institution_service.py. A directory listing (false) is discoverable but was never claimed to be a CredChain partner/account. */
+  is_registered: boolean
+}
+
+/** Generic pagination envelope — mirrors backend/app/schemas/pagination.py's Page[T] exactly. */
+export interface Page<T> {
+  items: T[]
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
 }
 
 export interface AuthTokenResponse {
@@ -444,6 +461,14 @@ export interface Company {
   location: string | null
   company_size: string | null
   created_at: string
+  country: string | null
+  region: string | null
+  city: string | null
+  logo_url: string | null
+  /** e.g. "manual_curated", "wikidata" — null for a directly-registered company. */
+  source: string | null
+  /** true only when this company has a real CredChain login (user_id set) and can therefore post jobs. A directory listing (false) is discoverable but is not a registered CredChain employer. */
+  is_registered: boolean
   /** Real count of this company's currently-OPEN jobs, computed server-side. */
   open_positions_count: number
 }

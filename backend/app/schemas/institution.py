@@ -15,8 +15,14 @@ class InstitutionSummaryResponse(BaseModel):
 
     A row with no description/location/website/institution_type is a real
     institution that simply hasn't had those fields filled in yet (or was
-    seeded from a dataset that didn't have that field) — rendered as
+    seeded/imported from a source that didn't have that field) — rendered as
     "not available", never fabricated.
+
+    is_registered distinguishes a directory listing (discoverable, no
+    CredChain login — user_id is NULL) from a real registered CredChain
+    institution (user_id is set) — computed fresh from the ORM row every
+    time (see institution_service.to_response), never a stored claim that
+    could drift from the truth.
     """
 
     id: uuid.UUID
@@ -25,5 +31,11 @@ class InstitutionSummaryResponse(BaseModel):
     location: str | None = None
     website: str | None = None
     institution_type: str | None = None
+    country: str | None = None
+    region: str | None = None
+    city: str | None = None
+    logo_url: str | None = None
+    source: str | None = None
+    is_registered: bool = False
 
     model_config = {"from_attributes": True}

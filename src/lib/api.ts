@@ -38,6 +38,7 @@ import type {
   StudentJobApplication,
   CompanyJobApplication,
   JobAIAnalysisResult,
+  Page,
 } from '../types'
 import {
   credentials,
@@ -58,22 +59,58 @@ export async function register(payload: RegisterPayload): Promise<AuthTokenRespo
   return apiClient.post<AuthTokenResponse>('/auth/register', payload)
 }
 
-function toQueryString(params: Record<string, string | undefined>): string {
+function toQueryString(params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
-    if (value) search.set(key, value)
+    if (value !== undefined && value !== '') search.set(key, String(value))
   }
   const qs = search.toString()
   return qs ? `?${qs}` : ''
 }
 
+// The backend directory endpoints (GET /institutions, GET /companies) are always paginated
+// (see backend/app/schemas/pagination.py) — this is the page size the handful of "just give me
+// the full pick-list" callers (registration's institution picker, the direct-share company
+// picker) request so they keep behaving like a complete list without needing their own
+// pagination UI. The dedicated Directory pages (Institutions.tsx/Companies.tsx) use
+// getInstitutionsPage/getCompaniesPage below for real, page-by-page browsing of the whole
+// (potentially tens-of-thousands-of-rows) dataset instead.
+const LEGACY_FULL_LIST_PAGE_SIZE = 500
+
 /**
- * Public — real institutions. Used both by the registration/link-institution
- * picker (no args — needs the full list) and by the student Institution
- * Directory (search/location/country — same endpoint, richer query).
+ * Public — real institutions, unwrapped to a plain array. Used by the
+ * registration/link-institution picker and the direct-share company picker
+ * equivalents — anywhere that predates pagination and just wants "the
+ * list." See getInstitutionsPage for the real paginated directory query.
  */
 export async function getInstitutions(filters?: { search?: string; location?: string; country?: string }): Promise<InstitutionSummary[]> {
-  return apiClient.get<InstitutionSummary[]>(`/institutions${toQueryString(filters ?? {})}`)
+  const page = await apiClient.get<Page<InstitutionSummary>>(
+    `/institutions${toQueryString({ ...filters, page_size: LEGACY_FULL_LIST_PAGE_SIZE })}`
+  )
+  return page.items
+}
+
+/** Public — one page of the institution directory, with the real total/page_count for pagination controls. */
+export async function getInstitutionsPage(params?: {
+  search?: string
+  location?: string
+  country?: string
+  region?: string
+  institutionType?: string
+  page?: number
+  pageSize?: number
+}): Promise<Page<InstitutionSummary>> {
+  return apiClient.get<Page<InstitutionSummary>>(
+    `/institutions${toQueryString({
+      search: params?.search,
+      location: params?.location,
+      country: params?.country,
+      region: params?.region,
+      institution_type: params?.institutionType,
+      page: params?.page,
+      page_size: params?.pageSize,
+    })}`
+  )
 }
 
 /** Public — one institution's directory profile. */
@@ -619,8 +656,31 @@ export async function downloadSharedCredentialDocument(credentialId: string): Pr
 
 // ---- Company profiles (real backend, job marketplace phase) ---------------------------
 
+/** Unwrapped to a plain array — used by the direct-share company picker (ShareFlow.tsx) and anywhere else that predates pagination. See getCompaniesPage for the real paginated directory query. */
 export async function getRealCompanies(filters?: { search?: string; industry?: string; location?: string }): Promise<Company[]> {
-  return apiClient.get<Company[]>(`/companies${toQueryString(filters ?? {})}`)
+  const page = await apiClient.get<Page<Company>>(`/companies${toQueryString({ ...filters, page_size: LEGACY_FULL_LIST_PAGE_SIZE })}`)
+  return page.items
+}
+
+/** One page of the company directory, with the real total/page_count for pagination controls. */
+export async function getCompaniesPage(params?: {
+  search?: string
+  industry?: string
+  location?: string
+  country?: string
+  page?: number
+  pageSize?: number
+}): Promise<Page<Company>> {
+  return apiClient.get<Page<Company>>(
+    `/companies${toQueryString({
+      search: params?.search,
+      industry: params?.industry,
+      location: params?.location,
+      country: params?.country,
+      page: params?.page,
+      page_size: params?.pageSize,
+    })}`
+  )
 }
 
 export async function getRealCompany(id: string): Promise<Company> {

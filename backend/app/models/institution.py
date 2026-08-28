@@ -48,6 +48,18 @@ class Institution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     website: Mapped[str | None] = mapped_column(String(255), nullable=True)
     institution_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Structured location (Phase 2) — lets search/filter use real indexed
+    # equality/prefix predicates instead of substring-matching `location`.
+    # NULL on every Phase 1 row; populated going forward by real imports.
+    country: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    region: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    logo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Where this record came from (e.g. "manual_curated", "hipolabs_world_universities") and that
+    # source's own stable id for it (e.g. a domain) — see scripts/import_institutions.py. Both NULL
+    # for Phase 1's manually curated rows and for any institution that registered directly.
+    source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     user: Mapped[User | None] = relationship(back_populates="institution")
     students: Mapped[list[Student]] = relationship(back_populates="institution")

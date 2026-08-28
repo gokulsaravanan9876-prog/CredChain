@@ -9,6 +9,7 @@ from ..models.user import User
 from ..schemas.company import CompanyProfileResponse, UpdateCompanyProfileBody
 from ..schemas.job import CreateJobBody, JobResponse, UpdateJobBody
 from ..schemas.job_application import CompanyApplicationResponse, UpdateApplicationStatusBody
+from ..schemas.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, Page
 from ..security.permissions import require_verifier
 from ..services import company_service, job_application_service, job_service
 
@@ -23,17 +24,26 @@ def _company_of(current_user: User) -> Company:
 
 @router.get(
     "",
-    response_model=list[CompanyProfileResponse],
-    summary="List real companies — public, used by students browsing genuine company profiles (never a source of fabricated company data)",
+    response_model=Page[CompanyProfileResponse],
+    summary=(
+        "Paginated, searchable company directory — public, used by students browsing genuine company "
+        "profiles (never a source of fabricated company data). Scales to a globally-imported dataset "
+        "(see scripts/import_companies.py) — never returns the whole table."
+    ),
 )
 def list_companies(
     search: str | None = Query(default=None, description="Matches company name, industry, or location"),
     industry: str | None = Query(default=None),
     location: str | None = Query(default=None),
+    country: str | None = Query(default=None, description="Exact match, e.g. 'India'"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     db: Session = Depends(get_db),
-) -> list[CompanyProfileResponse]:
-    companies = company_service.list_companies(db, search=search, industry=industry, location=location)
-    return [company_service.to_response(db, c) for c in companies]
+) -> Page[CompanyProfileResponse]:
+    companies, total = company_service.list_companies(
+        db, search=search, industry=industry, location=location, country=country, page=page, page_size=page_size
+    )
+    return company_service.to_page_response(db, companies, total=total, page=page, page_size=page_size)
 
 
 @router.get("/me", response_model=CompanyProfileResponse, summary="The authenticated company's own profile")

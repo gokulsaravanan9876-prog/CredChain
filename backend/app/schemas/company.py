@@ -5,7 +5,16 @@ from pydantic import BaseModel, Field
 
 
 class CompanyProfileResponse(BaseModel):
-    """A real company's public profile — every field here is a genuine database column, never fabricated placeholder text."""
+    """
+    A real company's public profile — every field here is a genuine database
+    column, never fabricated placeholder text.
+
+    is_registered distinguishes a directory listing (discoverable, no
+    CredChain login — user_id is NULL, can never post jobs or receive
+    applications) from a real registered CredChain employer (user_id is
+    set) — computed fresh from the ORM row every time (see
+    company_service.to_response), never a stored claim that could drift.
+    """
 
     id: uuid.UUID
     name: str
@@ -15,6 +24,12 @@ class CompanyProfileResponse(BaseModel):
     location: str | None
     company_size: str | None
     created_at: datetime
+    country: str | None = None
+    region: str | None = None
+    city: str | None = None
+    logo_url: str | None = None
+    source: str | None = None
+    is_registered: bool = False
     # Not an ORM column — computed per-request (see company_service.to_response)
     # as a real count of this company's OPEN jobs, so the directory card/profile
     # can show it without the frontend fetching every job for every company.

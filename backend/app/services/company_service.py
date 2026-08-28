@@ -5,16 +5,30 @@ from ..models.company import Company
 from ..models.enums import JobStatus
 from ..models.job import Job
 from ..schemas.company import CompanyProfileResponse, UpdateCompanyProfileBody
+from ..schemas.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, Page
 
 
-def list_companies(db: Session, *, search: str | None = None, industry: str | None = None, location: str | None = None) -> list[Company]:
+def list_companies(
+    db: Session,
+    *,
+    search: str | None = None,
+    industry: str | None = None,
+    location: str | None = None,
+    country: str | None = None,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> tuple[list[Company], int]:
     """
     Public company directory listing. search matches name/industry/location
-    (case-insensitive substring, same approach as institution_service.list_institutions);
-    industry/location are exact-match filters over whatever free-text value
-    the company/seed data actually has — there is no fixed industry/location
-    vocabulary to validate against.
+    (case-insensitive substring). industry/country are exact (case-insensitive)
+    matches; location stays a free-text substring match over the legacy
+    combined field (see list_institutions for the same country-vs-location
+    rationale). Returns (page_of_rows, total_matching_count) — never the
+    whole table.
     """
+    page = max(1, page)
+    page_size = max(1, min(page_size, MAX_PAGE_SIZE))
+
     query = db.query(Company)
     if search:
         needle = f"%{search.strip()}%"
@@ -25,7 +39,12 @@ def list_companies(db: Session, *, search: str | None = None, industry: str | No
         query = query.filter(Company.industry.ilike(industry.strip()))
     if location:
         query = query.filter(Company.location.ilike(f"%{location.strip()}%"))
-    return query.order_by(Company.name).all()
+    if country:
+        query = query.filter(Company.country.ilike(country.strip()))
+
+    total = query.count()
+    rows = query.order_by(Company.name, Company.id).offset((page - 1) * page_size).limit(page_size).all()
+    return rows, total
 
 
 def _open_job_count(db: Session, company_id) -> int:
@@ -42,8 +61,18 @@ def to_response(db: Session, company: Company) -> CompanyProfileResponse:
         location=company.location,
         company_size=company.company_size,
         created_at=company.created_at,
+        country=company.country,
+        region=company.region,
+        city=company.city,
+        logo_url=company.logo_url,
+        source=company.source,
+        is_registered=company.user_id is not None,
         open_positions_count=_open_job_count(db, company.id),
     )
+
+
+def to_page_response(db: Session, rows: list[Company], *, total: int, page: int, page_size: int) -> Page[CompanyProfileResponse]:
+    return Page.of([to_response(db, c) for c in rows], page=page, page_size=page_size, total=total)
 
 
 def update_profile(db: Session, company: Company, payload: UpdateCompanyProfileBody) -> Company:

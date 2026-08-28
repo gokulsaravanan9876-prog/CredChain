@@ -15,6 +15,7 @@ from ..models.user import User
 from ..schemas.credential import BulkIssuanceItemResponse, BulkIssuanceResponse, CredentialResponse, StudentSummaryResponse
 from ..schemas.institution import InstitutionSummaryResponse
 from ..schemas.institution_request import InstitutionCertificateRequestResponse, RejectInstitutionRequestBody
+from ..schemas.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, Page
 from ..schemas.student_document import ApproveStudentDocumentBody, RejectStudentDocumentBody, StudentDocumentResponse
 from ..security.permissions import require_institution
 from ..services import credential_service, institution_request_service, institution_service, student_document_service
@@ -31,17 +32,28 @@ router = APIRouter(prefix="/api/institutions", tags=["institutions"])
 
 @router.get(
     "",
-    response_model=list[InstitutionSummaryResponse],
-    summary="List legitimate institutions — public. Used both to let a student pick a real institution to link to, and by the student Institution Directory (search/location/country filters are additive; never a way to invent an institution)",
+    response_model=Page[InstitutionSummaryResponse],
+    summary=(
+        "Paginated, searchable institution directory — public. Used both to let a student pick a real "
+        "institution to link to, and by the student Institution Directory (search/location/country/"
+        "region/institution_type filters are additive; never a way to invent an institution). Scales to "
+        "a globally-imported dataset (see scripts/import_institutions.py) — never returns the whole table."
+    ),
 )
 def list_institutions(
-    search: str | None = Query(default=None, description="Matches institution name or location"),
+    search: str | None = Query(default=None, description="Matches institution name, location, or city"),
     location: str | None = Query(default=None),
-    country: str | None = Query(default=None),
+    country: str | None = Query(default=None, description="Exact match, e.g. 'India'"),
+    region: str | None = Query(default=None, description="Substring match against state/province"),
+    institution_type: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     db: Session = Depends(get_db),
-) -> list[InstitutionSummaryResponse]:
-    institutions = institution_service.list_institutions(db, search=search, location=location, country=country)
-    return [InstitutionSummaryResponse.model_validate(i) for i in institutions]
+) -> Page[InstitutionSummaryResponse]:
+    rows, total = institution_service.list_institutions(
+        db, search=search, location=location, country=country, region=region, institution_type=institution_type, page=page, page_size=page_size
+    )
+    return institution_service.to_page_response(rows, total=total, page=page, page_size=page_size)
 
 
 @router.get(
@@ -53,7 +65,7 @@ def get_institution(institution_id: uuid.UUID, db: Session = Depends(get_db)) ->
     institution = institution_service.get_institution(db, institution_id)
     if institution is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Institution not found")
-    return InstitutionSummaryResponse.model_validate(institution)
+    return institution_service.to_response(institution)
 
 
 def _institution_of(current_user: User) -> Institution:

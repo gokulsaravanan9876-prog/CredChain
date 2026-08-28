@@ -77,12 +77,16 @@ def test_directory_only_institution_is_publicly_listed_and_never_a_login_account
 
     list_resp = client.get("/api/institutions")
     assert list_resp.status_code == 200
-    names = [i["name"] for i in list_resp.json()]
+    body = list_resp.json()
+    names = [i["name"] for i in body["items"]]
     assert "Directory Only University" in names
+    assert body["total"] >= 1
+    assert body["page"] == 1
 
     detail_resp = client.get(f"/api/institutions/{inst.id}")
     assert detail_resp.status_code == 200
     assert detail_resp.json()["location"] == "Nowhere City, Testland"
+    assert detail_resp.json()["is_registered"] is False
 
 
 def test_institution_search_matches_name_and_location_case_insensitively(client, db_session):
@@ -91,25 +95,85 @@ def test_institution_search_matches_name_and_location_case_insensitively(client,
 
     by_name = client.get("/api/institutions", params={"search": "zeta"})
     assert by_name.status_code == 200
-    names = [i["name"] for i in by_name.json()]
+    names = [i["name"] for i in by_name.json()["items"]]
     assert "Zeta Institute of Technology" in names
     assert "Unrelated College" not in names
 
     by_location = client.get("/api/institutions", params={"search": "Springfield"})
-    names = [i["name"] for i in by_location.json()]
+    names = [i["name"] for i in by_location.json()["items"]]
     assert "Zeta Institute of Technology" in names
     assert "Unrelated College" not in names
 
 
-def test_institution_search_with_no_match_returns_empty_list_not_error(client, db_session):
+def test_institution_search_with_no_match_returns_empty_page_not_error(client, db_session):
     resp = client.get("/api/institutions", params={"search": "Definitely Not A Real Institution Name XYZ"})
     assert resp.status_code == 200
-    assert resp.json() == []
+    body = resp.json()
+    assert body["items"] == []
+    assert body["total"] == 0
 
 
 def test_nonexistent_institution_returns_404(client, db_session):
     resp = client.get(f"/api/institutions/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+def test_institution_country_and_type_filters_are_exact_match(client, db_session):
+    a = _directory_institution(db_session, "Filter Type Uni A", institution_type="Public University")
+    b = _directory_institution(db_session, "Filter Type College B", institution_type="Private College")
+    a.country = "India"
+    b.country = "United States"
+    db_session.commit()
+
+    by_type = client.get("/api/institutions", params={"institution_type": "Public University"}).json()
+    names = [i["name"] for i in by_type["items"]]
+    assert "Filter Type Uni A" in names
+    assert "Filter Type College B" not in names
+
+    by_country = client.get("/api/institutions", params={"country": "India"}).json()
+    names = [i["name"] for i in by_country["items"]]
+    assert "Filter Type Uni A" in names
+    assert "Filter Type College B" not in names
+
+
+def test_institution_country_filter_still_matches_legacy_rows_with_no_structured_country(client, db_session):
+    """
+    Regression test: Phase 1's manually curated institutions (and any future row created before
+    an import populates the structured `country` column) only ever have a combined `location`
+    string like "Mumbai, Maharashtra, India" — `country` itself is NULL. Filtering by country must
+    still find them via `location`, or every one of those institutions would silently vanish from
+    country-filtered results the moment this column was introduced.
+    """
+    legacy = _directory_institution(db_session, "Legacy Location Only University", location="Chennai, Tamil Nadu, India")
+    assert legacy.country is None  # exactly the Phase 1 shape — no structured country populated
+
+    resp = client.get("/api/institutions", params={"country": "India"})
+    assert resp.status_code == 200
+    names = [i["name"] for i in resp.json()["items"]]
+    assert "Legacy Location Only University" in names
+
+
+def test_institution_region_filter_is_substring_match(client, db_session):
+    inst = _directory_institution(db_session, "Filter Region Uni")
+    inst.region = "Maharashtra"
+    db_session.commit()
+
+    resp = client.get("/api/institutions", params={"region": "Mahar"}).json()
+    names = [i["name"] for i in resp["items"]]
+    assert "Filter Region Uni" in names
+
+
+def test_institution_pagination_deterministic_and_total_accurate(client, db_session):
+    for i in range(5):
+        _directory_institution(db_session, f"Pagination Test Uni {i}", institution_type="PaginationTestType")
+
+    page1 = client.get("/api/institutions", params={"institution_type": "PaginationTestType", "page": 1, "page_size": 2}).json()
+    page2 = client.get("/api/institutions", params={"institution_type": "PaginationTestType", "page": 2, "page_size": 2}).json()
+    assert page1["total"] == 5
+    assert page1["total_pages"] == 3
+    assert len(page1["items"]) == 2
+    assert len(page2["items"]) == 2
+    assert {i["name"] for i in page1["items"]}.isdisjoint({i["name"] for i in page2["items"]})
 
 
 # ---- Companies ----------------------------------------------------------------
@@ -121,10 +185,15 @@ def test_directory_only_company_is_publicly_listed_alongside_registered_companie
 
     resp = client.get("/api/companies")
     assert resp.status_code == 200
-    names = [c["name"] for c in resp.json()]
+    items = resp.json()["items"]
+    names = [c["name"] for c in items]
     assert "Directory Only Corp" in names
     assert "Registered Search Co" in names
     assert verifier["company_id"] is not None
+    directory_row = next(c for c in items if c["name"] == "Directory Only Corp")
+    registered_row = next(c for c in items if c["name"] == "Registered Search Co")
+    assert directory_row["is_registered"] is False
+    assert registered_row["is_registered"] is True
 
 
 def test_company_search_industry_and_location_filters(client, db_session):
@@ -132,19 +201,32 @@ def test_company_search_industry_and_location_filters(client, db_session):
     _directory_company(db_session, "Filter Other Bank", industry="Banking", location="Mumbai, Maharashtra, India")
 
     by_search = client.get("/api/companies", params={"search": "Robotics"})
-    names = [c["name"] for c in by_search.json()]
+    names = [c["name"] for c in by_search.json()["items"]]
     assert "Filter Target Robotics" in names
     assert "Filter Other Bank" not in names
 
     by_industry = client.get("/api/companies", params={"industry": "Robotics"})
-    names = [c["name"] for c in by_industry.json()]
+    names = [c["name"] for c in by_industry.json()["items"]]
     assert "Filter Target Robotics" in names
     assert "Filter Other Bank" not in names
 
     by_location = client.get("/api/companies", params={"location": "Pune"})
-    names = [c["name"] for c in by_location.json()]
+    names = [c["name"] for c in by_location.json()["items"]]
     assert "Filter Target Robotics" in names
     assert "Filter Other Bank" not in names
+
+
+def test_company_country_filter_is_exact_match(client, db_session):
+    india = _directory_company(db_session, "Filter Country India Co", location="Mumbai, India")
+    usa = _directory_company(db_session, "Filter Country USA Co", location="New York, USA")
+    india.country = "India"
+    usa.country = "United States"
+    db_session.commit()
+
+    resp = client.get("/api/companies", params={"country": "India"})
+    names = [c["name"] for c in resp.json()["items"]]
+    assert "Filter Country India Co" in names
+    assert "Filter Country USA Co" not in names
 
 
 def test_company_open_positions_count_reflects_only_open_jobs(client, db_session):
@@ -157,10 +239,36 @@ def test_company_open_positions_count_reflects_only_open_jobs(client, db_session
     detail = client.get(f"/api/companies/{verifier['company_id']}")
     assert detail.status_code == 200
     assert detail.json()["open_positions_count"] == 1  # only open_job is published; draft stays draft
+    assert detail.json()["is_registered"] is True
 
     listing = client.get("/api/companies", params={"search": "Open Jobs Co"}).json()
-    assert listing[0]["open_positions_count"] == 1
+    assert listing["items"][0]["open_positions_count"] == 1
     assert draft["status"] == "draft"
+
+
+def test_company_pagination_page_size_and_total(client, db_session):
+    for i in range(5):
+        _directory_company(db_session, f"Pagination Test Co {i}", industry="PaginationTestIndustry")
+
+    page1 = client.get("/api/companies", params={"industry": "PaginationTestIndustry", "page": 1, "page_size": 2}).json()
+    assert len(page1["items"]) == 2
+    assert page1["total"] == 5
+    assert page1["total_pages"] == 3
+    assert page1["page"] == 1
+
+    page2 = client.get("/api/companies", params={"industry": "PaginationTestIndustry", "page": 2, "page_size": 2}).json()
+    assert len(page2["items"]) == 2
+    page1_names = {c["name"] for c in page1["items"]}
+    page2_names = {c["name"] for c in page2["items"]}
+    assert page1_names.isdisjoint(page2_names)  # different rows per page, deterministic ordering
+
+    page3 = client.get("/api/companies", params={"industry": "PaginationTestIndustry", "page": 3, "page_size": 2}).json()
+    assert len(page3["items"]) == 1
+
+
+def test_company_page_size_is_capped_at_max(client, db_session):
+    resp = client.get("/api/companies", params={"page_size": 99999})
+    assert resp.status_code == 422  # FastAPI's own Query(le=MAX_PAGE_SIZE) validation rejects it
 
 
 # ---- Jobs -----------------------------------------------------------------------
