@@ -12,7 +12,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func
+from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session
 
 from ..models.activity_log import ActivityLog
@@ -20,9 +20,20 @@ from ..models.company import Company
 from ..models.credential import Credential
 from ..models.credential_request import CredentialRequest
 from ..models.enums import CredentialRequestStatus, SharePermission
+from ..models.institution import Institution
 from ..models.share_grant import ShareGrant, ShareGrantCredential
 from ..models.student import Student
-from ..schemas.sharing import ALLOWED_EXPIRY_DAYS, CredentialRequestResponse, ShareCredentialPreview, ShareGrantResponse
+from ..models.user import User
+from ..models.verification_event import VerificationEvent
+from ..schemas.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, Page
+from ..schemas.sharing import (
+    ALLOWED_EXPIRY_DAYS,
+    SHARED_CREDENTIAL_STATUS_FILTERS,
+    CredentialRequestResponse,
+    ShareCredentialPreview,
+    ShareGrantResponse,
+    SharedCredentialItem,
+)
 from ..security.tokens import generate_raw_token, hash_token
 
 
@@ -364,6 +375,136 @@ def list_shares_for_student(db: Session, student: Student) -> list[ShareGrant]:
 
 def list_shares_for_company(db: Session, company: Company) -> list[ShareGrant]:
     return db.query(ShareGrant).filter(ShareGrant.company_id == company.id).order_by(ShareGrant.created_at.desc()).all()
+
+
+class InvalidSharedCredentialStatusFilterError(Exception):
+    pass
+
+
+def list_shared_credentials_for_company(
+    db: Session,
+    company: Company,
+    *,
+    search: str | None = None,
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> tuple[list[SharedCredentialItem], int]:
+    """
+    The "Credentials Shared With You" inbox — one row per (share_grant,
+    credential) pair, scoped to exactly this company's own canonical
+    company_id (the same authorization boundary company_id already
+    enforces everywhere else; nothing new here). Backend-paginated and
+    backend-searched/filtered so the frontend never has to load more than
+    one page, matching the existing institution/company directory pattern
+    (see company_service.list_companies).
+
+    status, when given, must be one of SHARED_CREDENTIAL_STATUS_FILTERS and
+    filters by the LATEST real VerificationEvent.result this company
+    recorded for that credential — never by share/credential status alone,
+    since a "VERIFIED" badge must mean an actual cryptographic check
+    happened (see SharedCredentialItem's docstring). There is deliberately
+    no way to filter for "not yet verified" — that's a display state, not a
+    stored event to query against.
+    """
+    if status is not None and status not in SHARED_CREDENTIAL_STATUS_FILTERS:
+        raise InvalidSharedCredentialStatusFilterError(
+            f"status must be one of {SHARED_CREDENTIAL_STATUS_FILTERS}, got {status!r}"
+        )
+
+    page = max(1, page)
+    page_size = max(1, min(page_size, MAX_PAGE_SIZE))
+
+    # This credential's most recent verification result AS SEEN BY THIS COMPANY specifically
+    # (never another company's checks on the same credential) — one windowed subquery, joined
+    # once, rather than two independent correlated subqueries, so result/verified_at always come
+    # from the exact same event row even if two events somehow share a timestamp.
+    latest_event_subq = (
+        db.query(
+            VerificationEvent.credential_id.label("credential_id"),
+            VerificationEvent.result.label("result"),
+            VerificationEvent.verified_at.label("verified_at"),
+            func.row_number()
+            .over(partition_by=VerificationEvent.credential_id, order_by=VerificationEvent.verified_at.desc())
+            .label("rn"),
+        )
+        .filter(VerificationEvent.company_id == company.id)
+        .subquery()
+    )
+
+    query = (
+        db.query(
+            Credential,
+            Student,
+            User,
+            Institution,
+            ShareGrant,
+            latest_event_subq.c.result,
+            latest_event_subq.c.verified_at,
+        )
+        .join(ShareGrantCredential, ShareGrantCredential.credential_id == Credential.id)
+        .join(ShareGrant, ShareGrant.id == ShareGrantCredential.share_grant_id)
+        .join(Student, Student.id == ShareGrant.student_id)
+        .join(User, User.id == Student.user_id)
+        .join(Institution, Institution.id == Credential.institution_id)
+        .outerjoin(
+            latest_event_subq,
+            (latest_event_subq.c.credential_id == Credential.id) & (latest_event_subq.c.rn == 1),
+        )
+        .filter(ShareGrant.company_id == company.id)
+    )
+
+    if search:
+        needle = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                User.full_name.ilike(needle),
+                Credential.title.ilike(needle),
+                cast(Credential.credential_type, String).ilike(needle),
+                Institution.name.ilike(needle),
+            )
+        )
+
+    if status is not None:
+        query = query.filter(latest_event_subq.c.result == status.upper())
+
+    total = query.count()
+    rows = (
+        query.order_by(ShareGrant.created_at.desc(), Credential.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    items = [
+        SharedCredentialItem(
+            id=credential.id,
+            share_id=grant.id,
+            student_id=student.id,
+            student_name=user.full_name,
+            credential_type=credential.credential_type,
+            title=credential.title,
+            degree=credential.degree,
+            graduation_year=credential.graduation_year,
+            cgpa=float(credential.cgpa) if credential.cgpa is not None else None,
+            institution_name=institution.name,
+            issued_at=credential.issued_at,
+            permission=grant.permission.value,
+            share_status=_share_status(grant),
+            shared_at=grant.created_at,
+            share_expires_at=grant.expires_at,
+            latest_verification_result=latest_result.value if latest_result is not None else None,
+            latest_verified_at=latest_verified_at,
+        )
+        for credential, student, user, institution, grant, latest_result, latest_verified_at in rows
+    ]
+    return items, total
+
+
+def to_shared_credentials_page_response(
+    items: list[SharedCredentialItem], *, total: int, page: int, page_size: int
+) -> Page[SharedCredentialItem]:
+    return Page.of(items, page=page, page_size=page_size, total=total)
 
 
 def revoke_share(db: Session, student: Student, share_id: uuid.UUID) -> ShareGrant:

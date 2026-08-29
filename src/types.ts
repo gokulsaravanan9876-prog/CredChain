@@ -273,6 +273,31 @@ export interface ShareCreatedResult {
   share_url: string
 }
 
+/** One row in a company's "Credentials Shared With You" inbox — mirrors backend/app/schemas/sharing.py's SharedCredentialItem exactly. One per (share, credential) pair; the same credential shared twice legitimately appears twice, distinguished by share_id/shared_at. */
+export interface SharedCredentialItem {
+  id: string
+  share_id: string
+  student_id: string
+  student_name: string
+  credential_type: CredentialType
+  title: string
+  degree: string | null
+  graduation_year: number | null
+  cgpa: number | null
+  institution_name: string
+  issued_at: string
+  permission: string
+  share_status: ShareGrantStatus
+  shared_at: string
+  share_expires_at: string
+  /** null = this company has never actually verified this credential ("NOT VERIFIED" in the UI) — never inferred from share/credential status alone. */
+  latest_verification_result: 'VERIFIED' | 'INVALID' | 'REVOKED' | 'EXPIRED' | 'UNAUTHORIZED' | 'TYPE_MISMATCH' | null
+  latest_verified_at: string | null
+}
+
+/** The 4 real, filterable cryptographic outcomes — mirrors backend/app/schemas/sharing.py's SHARED_CREDENTIAL_STATUS_FILTERS. "Not verified" is a display state, never a filter value. */
+export type SharedCredentialStatusFilter = 'verified' | 'invalid' | 'revoked' | 'expired'
+
 export interface ShareTokenAccessResult {
   company_name: string
   expires_at: string

@@ -24,6 +24,8 @@ import type {
   BackendShareGrant,
   ShareCreatedResult,
   ShareTokenAccessResult,
+  SharedCredentialItem,
+  SharedCredentialStatusFilter,
   AiHealthResult,
   AiDocumentRequirementsResult,
   AiCompanyIntelligenceResult,
@@ -252,6 +254,23 @@ export async function getStudentShares(): Promise<BackendShareGrant[]> {
 
 export async function getCompanyShares(): Promise<BackendShareGrant[]> {
   return apiClient.get<BackendShareGrant[]>('/companies/me/shares')
+}
+
+/** Paginated, searchable, filterable "Credentials Shared With You" inbox — never loads more than one page. */
+export async function getSharedCredentialsPage(params?: {
+  search?: string
+  status?: SharedCredentialStatusFilter
+  page?: number
+  pageSize?: number
+}): Promise<Page<SharedCredentialItem>> {
+  return apiClient.get<Page<SharedCredentialItem>>(
+    `/companies/me/shared-credentials${toQueryString({
+      search: params?.search,
+      status: params?.status,
+      page: params?.page,
+      page_size: params?.pageSize,
+    })}`
+  )
 }
 
 export async function revokeShare(shareId: string): Promise<BackendShareGrant> {
