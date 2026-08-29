@@ -1,5 +1,28 @@
-import type { CredentialType, CredentialStatus, VerificationStatus, Role } from '../types'
-import { GraduationCap, FileText, Stamp, Briefcase, Award, BookOpen, FileQuestion, type LucideIcon } from 'lucide-react'
+import type { CredentialType, CredentialStatus, VerificationStatus, Role, AccessLogEntry } from '../types'
+import {
+  GraduationCap,
+  FileText,
+  Stamp,
+  Briefcase,
+  Award,
+  BookOpen,
+  FileQuestion,
+  FileCheck,
+  ShieldCheck,
+  Ban,
+  Share2,
+  Mail,
+  CheckCircle2,
+  XCircle,
+  Upload,
+  Send,
+  Search,
+  Star,
+  Undo2,
+  Sparkles,
+  Activity as ActivityPulse,
+  type LucideIcon,
+} from 'lucide-react'
 
 /** One lookup table for credential-type icons, used everywhere a credential renders. */
 export const CREDENTIAL_TYPE_ICON: Record<CredentialType, LucideIcon> = {
@@ -71,6 +94,57 @@ export const TONE_CLASSES: Record<Tone, { bg: string; text: string; border: stri
   neutral: { bg: 'bg-canvas-2', text: 'text-muted', border: 'border-line' },
   primary: { bg: 'bg-primary-bg', text: 'text-primary', border: 'border-primary-line' },
 }
+
+/** `bg-gradient-to-*` "from" class per tone — for streak/glow accents (e.g. the Activity timeline's left-edge bar). */
+export const TONE_GRADIENT_FROM: Record<Tone, string> = {
+  good: 'from-good/60',
+  warn: 'from-warn/60',
+  bad: 'from-bad/60',
+  neutral: 'from-line-strong',
+  primary: 'from-primary/60',
+}
+
+/**
+ * Single source of truth for how each Activity Feed icon key renders,
+ * shared by the student/institution/company Activity pages and the
+ * student Dashboard's recent-activity widget — previously each page hand-
+ * rolled its own icon/tone lookup (with only 'shield'/'mail'/'check' to
+ * work with), which is exactly how a rejection ended up sharing an
+ * "Issued"-style icon with a real issuance. A rejection/decline event
+ * always maps to 'declined' here, never to 'issued' or 'approved'.
+ */
+export const ACTIVITY_ICON_MAP: Record<AccessLogEntry['icon'], { icon: LucideIcon; tone: Tone }> = {
+  issued: { icon: FileCheck, tone: 'good' },
+  revoked: { icon: Ban, tone: 'bad' },
+  verified: { icon: ShieldCheck, tone: 'good' },
+  shared: { icon: Share2, tone: 'primary' },
+  request: { icon: Mail, tone: 'neutral' },
+  approved: { icon: CheckCircle2, tone: 'good' },
+  declined: { icon: XCircle, tone: 'bad' },
+  document_submitted: { icon: Upload, tone: 'neutral' },
+  application_submitted: { icon: Send, tone: 'primary' },
+  under_review: { icon: Search, tone: 'warn' },
+  shortlisted: { icon: Star, tone: 'primary' },
+  withdrawn: { icon: Undo2, tone: 'neutral' },
+  ai: { icon: Sparkles, tone: 'primary' },
+  // Defensive fallback only — every action currently emitted by the backend
+  // maps to one of the keys above; this exists for a hypothetical future
+  // action code nobody has categorized yet, never for a real event today.
+  activity: { icon: ActivityPulse, tone: 'neutral' },
+}
+
+/** Shared filter-pill set for all three Activity pages — one definition so the
+ * three portals can't drift into inconsistent category names again. */
+export const ACTIVITY_FILTER_OPTIONS: { value: AccessLogEntry['category'] | 'all'; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'credential', label: 'Credentials' },
+  { value: 'sharing', label: 'Sharing' },
+  { value: 'verification', label: 'Verification' },
+  { value: 'requests', label: 'Requests' },
+  { value: 'application', label: 'Applications' },
+  { value: 'document', label: 'Documents' },
+  { value: 'admin', label: 'Admin' },
+]
 
 export function credentialStatusLabel(status: CredentialStatus): string {
   if (status === 'verified') return 'Verified'

@@ -462,11 +462,26 @@ export interface CredentialRequest {
 
 export interface AccessLogEntry {
   id: string
-  category: 'sharing' | 'verification' | 'requests' | 'credential' | 'ai'
+  category: 'sharing' | 'verification' | 'requests' | 'credential' | 'application' | 'document' | 'admin' | 'ai'
+  label: string /** short human-readable event-type badge, e.g. "Application Rejected" — never a raw action/entity code */
   actor: string /** e.g. "ABC Technologies" or "XYZ University" — shown as the row subtitle */
   action: string /** short bold title, e.g. "Transcript verified" */
   timestamp: string /** display string, e.g. "10:42 AM" or "Yesterday" */
-  icon: 'shield' | 'mail' | 'check'
+  icon:
+    | 'issued'
+    | 'revoked'
+    | 'verified'
+    | 'shared'
+    | 'request'
+    | 'approved'
+    | 'declined'
+    | 'document_submitted'
+    | 'application_submitted'
+    | 'under_review'
+    | 'shortlisted'
+    | 'withdrawn'
+    | 'ai'
+    | 'activity'
 }
 
 /** Phase 8B: real activity feed row from GET /api/{role}/me/activity. */

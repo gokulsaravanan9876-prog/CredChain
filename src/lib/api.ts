@@ -311,29 +311,123 @@ export async function createDirectShare(
 // changes from the mock accessLog/institutionActivity arrays to real
 // GET /api/{role}/me/activity calls.
 
+// Real entity_type values written by the backend (see activity_service.py's
+// get_*_activity conditions and every ActivityLog(...) call site) — never
+// shown raw in the UI, always passed through this map first.
 const ACTIVITY_ENTITY_LABEL: Record<string, string> = {
   credential: 'Credential',
   credential_request: 'Credential Request',
-  share_grant: 'Share',
+  share_grant: 'Credential Share',
+  job_application: 'Job Application',
+  institution_certificate_request: 'Certificate Request',
+  student_document: 'Student Document',
+  institution: 'Institution',
+  company: 'Company',
   ai_analysis: 'AI Analysis',
+}
+
+// Real action values written by the backend (see activity_service.py's
+// _GENERIC_MESSAGES and render_message, and every ActivityLog(action=...)
+// call site across credential_service, sharing_service, verification_service,
+// institution_request_service, student_document_service, job_application_service,
+// admin_service, and routes/ai.py). Every action below is a short, human-
+// readable event-type label — the small badge/chip shown on each Activity row —
+// distinct from `message` (the full rendered sentence) and from the entity
+// label above (what the event is ABOUT, vs. what KIND of event it is).
+const ACTIVITY_ACTION_LABEL: Record<string, string> = {
+  CREDENTIAL_ISSUED: 'Credential Issued',
+  CREDENTIAL_REVOKED: 'Credential Revoked',
+  CREDENTIAL_VERIFIED: 'Credential Verified',
+  CREDENTIAL_SHARED: 'Credential Shared',
+  SHARE_REVOKED: 'Credential Share Revoked',
+  SHARE_ACCESSED: 'Credential Share Accessed',
+  CREDENTIAL_REQUEST_CREATED: 'Credential Request Created',
+  CREDENTIAL_REQUEST_APPROVED: 'Credential Request Approved',
+  CREDENTIAL_REQUEST_DECLINED: 'Credential Request Declined',
+  CERTIFICATE_REQUEST_CREATED: 'Certificate Request Created',
+  CERTIFICATE_REQUEST_APPROVED: 'Certificate Request Approved',
+  CERTIFICATE_REQUEST_REJECTED: 'Certificate Request Rejected',
+  STUDENT_DOCUMENT_SUBMITTED: 'Document Submitted',
+  STUDENT_DOCUMENT_APPROVED: 'Document Approved',
+  STUDENT_DOCUMENT_REJECTED: 'Document Rejected',
+  APPLICATION_SUBMITTED: 'Application Submitted',
+  APPLICATION_UNDER_REVIEW: 'Application Under Review',
+  APPLICATION_SHORTLISTED: 'Application Shortlisted',
+  APPLICATION_ACCEPTED: 'Application Accepted',
+  APPLICATION_REJECTED: 'Application Rejected',
+  APPLICATION_WITHDRAWN: 'Application Withdrawn',
+  ADMIN_APPROVED_INSTITUTION: 'Institution Approved',
+  ADMIN_REJECTED_INSTITUTION: 'Institution Rejected',
+  ADMIN_APPROVED_COMPANY: 'Company Approved',
+  ADMIN_REJECTED_COMPANY: 'Company Rejected',
+  AI_DOCUMENT_ANALYSIS: 'AI Document Analysis',
+  AI_COMPANY_ANALYSIS: 'AI Company Analysis',
+  AI_JOB_ANALYSIS: 'AI Job Analysis',
+  AI_JOB_MATCH: 'AI Job Match',
 }
 
 const ACTIVITY_CATEGORY: Record<string, AccessLogEntry['category']> = {
   CREDENTIAL_ISSUED: 'credential',
   CREDENTIAL_REVOKED: 'credential',
   CREDENTIAL_VERIFIED: 'verification',
-  CREDENTIAL_REQUEST_CREATED: 'requests',
-  CREDENTIAL_REQUEST_APPROVED: 'requests',
-  CREDENTIAL_REQUEST_DECLINED: 'requests',
   CREDENTIAL_SHARED: 'sharing',
   SHARE_REVOKED: 'sharing',
   SHARE_ACCESSED: 'sharing',
+  CREDENTIAL_REQUEST_CREATED: 'requests',
+  CREDENTIAL_REQUEST_APPROVED: 'requests',
+  CREDENTIAL_REQUEST_DECLINED: 'requests',
+  CERTIFICATE_REQUEST_CREATED: 'requests',
+  CERTIFICATE_REQUEST_APPROVED: 'requests',
+  CERTIFICATE_REQUEST_REJECTED: 'requests',
+  STUDENT_DOCUMENT_SUBMITTED: 'document',
+  STUDENT_DOCUMENT_APPROVED: 'document',
+  STUDENT_DOCUMENT_REJECTED: 'document',
+  APPLICATION_SUBMITTED: 'application',
+  APPLICATION_UNDER_REVIEW: 'application',
+  APPLICATION_SHORTLISTED: 'application',
+  APPLICATION_ACCEPTED: 'application',
+  APPLICATION_REJECTED: 'application',
+  APPLICATION_WITHDRAWN: 'application',
+  ADMIN_APPROVED_INSTITUTION: 'admin',
+  ADMIN_REJECTED_INSTITUTION: 'admin',
+  ADMIN_APPROVED_COMPANY: 'admin',
+  ADMIN_REJECTED_COMPANY: 'admin',
+  AI_DOCUMENT_ANALYSIS: 'ai',
+  AI_COMPANY_ANALYSIS: 'ai',
+  AI_JOB_ANALYSIS: 'ai',
+  AI_JOB_MATCH: 'ai',
 }
 
 const ACTIVITY_ICON: Record<string, AccessLogEntry['icon']> = {
-  CREDENTIAL_VERIFIED: 'check',
-  SHARE_ACCESSED: 'check',
-  CREDENTIAL_REQUEST_CREATED: 'mail',
+  CREDENTIAL_ISSUED: 'issued',
+  CREDENTIAL_REVOKED: 'revoked',
+  CREDENTIAL_VERIFIED: 'verified',
+  CREDENTIAL_SHARED: 'shared',
+  SHARE_REVOKED: 'revoked',
+  SHARE_ACCESSED: 'shared',
+  CREDENTIAL_REQUEST_CREATED: 'request',
+  CREDENTIAL_REQUEST_APPROVED: 'approved',
+  CREDENTIAL_REQUEST_DECLINED: 'declined',
+  CERTIFICATE_REQUEST_CREATED: 'request',
+  CERTIFICATE_REQUEST_APPROVED: 'approved',
+  CERTIFICATE_REQUEST_REJECTED: 'declined',
+  STUDENT_DOCUMENT_SUBMITTED: 'document_submitted',
+  STUDENT_DOCUMENT_APPROVED: 'approved',
+  STUDENT_DOCUMENT_REJECTED: 'declined',
+  APPLICATION_SUBMITTED: 'application_submitted',
+  APPLICATION_UNDER_REVIEW: 'under_review',
+  APPLICATION_SHORTLISTED: 'shortlisted',
+  APPLICATION_ACCEPTED: 'approved',
+  APPLICATION_REJECTED: 'declined',
+  APPLICATION_WITHDRAWN: 'withdrawn',
+  ADMIN_APPROVED_INSTITUTION: 'approved',
+  ADMIN_REJECTED_INSTITUTION: 'declined',
+  ADMIN_APPROVED_COMPANY: 'approved',
+  ADMIN_REJECTED_COMPANY: 'declined',
+  AI_DOCUMENT_ANALYSIS: 'ai',
+  AI_COMPANY_ANALYSIS: 'ai',
+  AI_JOB_ANALYSIS: 'ai',
+  AI_JOB_MATCH: 'ai',
 }
 
 function formatActivityTimestamp(iso: string): string {
@@ -350,13 +444,21 @@ function formatActivityTimestamp(iso: string): string {
 }
 
 function mapBackendActivity(row: BackendActivityEvent): AccessLogEntry {
+  // Every action currently emitted anywhere in the backend has an explicit
+  // entry in all three maps above — these `??` fallbacks are a defensive
+  // catch-all for a hypothetical future action code, not a real code path
+  // today. `label`/`icon` fall back to an honestly-generic "Activity"/pulse-
+  // icon rather than a specific-looking (and potentially wrong) label like
+  // "Issued" or "Approved"; `category` keeps the pre-existing 'sharing'
+  // fallback purely for type-safety on this now-unreachable branch.
   return {
     id: row.id,
-    category: ACTIVITY_CATEGORY[row.action] ?? (row.action.startsWith('AI_') ? 'ai' : 'sharing'),
+    category: ACTIVITY_CATEGORY[row.action] ?? 'sharing',
+    label: ACTIVITY_ACTION_LABEL[row.action] ?? 'Activity',
     actor: row.entity_type ? (ACTIVITY_ENTITY_LABEL[row.entity_type] ?? row.entity_type) : 'Activity',
     action: row.message,
     timestamp: formatActivityTimestamp(row.created_at),
-    icon: ACTIVITY_ICON[row.action] ?? 'shield',
+    icon: ACTIVITY_ICON[row.action] ?? 'activity',
   }
 }
 
