@@ -597,15 +597,34 @@ def revoke_share(db: Session, student: Student, share_id: uuid.UUID) -> ShareGra
     grant.revoked_at = datetime.now(timezone.utc)
     db.add(grant)
 
-    db.add(
-        ActivityLog(
-            actor_user_id=student.user_id,
-            action="SHARE_REVOKED",
-            entity_type="share_grant",
-            entity_id=grant.id,
-            metadata_={"company_id": str(grant.company_id)},
-        )
+    log = ActivityLog(
+        actor_user_id=student.user_id,
+        action="SHARE_REVOKED",
+        entity_type="share_grant",
+        entity_id=grant.id,
+        metadata_={"company_id": str(grant.company_id)},
     )
+    db.add(log)
+    db.flush()
+
+    company = grant.company
+    # A directory-only company (never registered, no login) can never actually
+    # have been a share recipient in the first place — _create_share_grant's
+    # own guard already prevents that — but this function has no other way to
+    # enforce that invariant itself, so it's checked again here.
+    if company is not None and company.user_id is not None:
+        credentials = grant.credentials
+        label = credentials[0].title if len(credentials) == 1 else f"{len(credentials)} credentials"
+        notification_service.create_notification(
+            db,
+            user_id=company.user_id,
+            title="Credential Share Revoked",
+            message=f"{student.user.full_name} revoked your access to {label}",
+            activity_log_id=log.id,
+            link_entity_type="share_grant",
+            link_entity_id=grant.id,
+        )
+
     db.commit()
     db.refresh(grant)
     return grant

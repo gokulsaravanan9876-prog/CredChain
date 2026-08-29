@@ -46,7 +46,6 @@ export const NAV_CONFIG: Record<Role, { primary: NavItem[]; secondary: NavItem[]
       { to: '/institution', label: 'Dashboard', icon: LayoutGrid },
       { to: '/institution/students', label: 'Students', icon: Users },
       { to: '/institution/credentials', label: 'Credentials', icon: FileCheck2 },
-      { to: '/institution/requests', label: 'Requests', icon: Inbox },
       { to: '/institution/certificate-requests', label: 'Certificate Requests', icon: ClipboardList },
       { to: '/institution/documents', label: 'Document Verification', icon: ShieldQuestion },
       { to: '/institution/activity', label: 'Activity', icon: Activity },

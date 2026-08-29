@@ -113,6 +113,19 @@ export function InstitutionCertificateRequests() {
     }
   }
 
+  // Reject-reason state is scoped to whichever request is currently being
+  // rejected — always reset on open/cancel so a reason typed for one
+  // student's request can never reappear when rejecting a different one.
+  function handleStartReject(id: string) {
+    setRejectingId(id)
+    setRejectReason('')
+  }
+
+  function handleCancelReject() {
+    setRejectingId(null)
+    setRejectReason('')
+  }
+
   async function handleReject(id: string) {
     if (!rejectReason.trim()) return
     setBusyId(id)
@@ -196,10 +209,11 @@ export function InstitutionCertificateRequests() {
                               onChange={(e) => setRejectReason(e.target.value)}
                               placeholder="Reason for rejection"
                               rows={2}
-                              className="w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink outline-none focus:border-primary"
+                              disabled={busyId === r.id}
+                              className="w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink outline-none focus:border-primary disabled:opacity-60"
                             />
                             <div className="flex gap-2">
-                              <Button variant="outline" size="sm" onClick={() => setRejectingId(null)}>
+                              <Button variant="outline" size="sm" disabled={busyId === r.id} onClick={() => handleCancelReject()}>
                                 Cancel
                               </Button>
                               <Button variant="solid" size="sm" loading={busyId === r.id} onClick={() => handleReject(r.id)}>
@@ -231,7 +245,7 @@ export function InstitutionCertificateRequests() {
                               variant="outline"
                               size="sm"
                               disabled={busyId === r.id || issuingId === r.id}
-                              onClick={() => setRejectingId(r.id)}
+                              onClick={() => handleStartReject(r.id)}
                             >
                               Reject
                             </Button>
