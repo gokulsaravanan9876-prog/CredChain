@@ -40,6 +40,11 @@ interface RequestGroup {
   items: InstitutionCertificateRequest[]
 }
 
+/** Same URL/query-param shape the existing APPROVED -> "Issue Credential" button already builds. */
+function issueUrl(r: InstitutionCertificateRequest): string {
+  return `/institution/credentials/issue?studentId=${r.student_id}&credentialType=${r.credential_type}&fulfillsRequestId=${r.id}`
+}
+
 function groupRequests(requests: InstitutionCertificateRequest[]): RequestGroup[] {
   const groups = new Map<string, RequestGroup>()
   for (const r of requests) {
@@ -61,6 +66,7 @@ export function InstitutionCertificateRequests() {
   const [requests, setRequests] = useState<InstitutionCertificateRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [issuingId, setIssuingId] = useState<string | null>(null)
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -90,6 +96,20 @@ export function InstitutionCertificateRequests() {
       setError(err instanceof ApiError ? err.message : 'Could not approve this request.')
     } finally {
       setBusyId(null)
+    }
+  }
+
+  async function handleApproveAndIssue(r: InstitutionCertificateRequest) {
+    setIssuingId(r.id)
+    setError(null)
+    try {
+      const updated = await approveCertificateRequest(r.id)
+      setRequests((prev) => prev.map((x) => (x.id === r.id ? updated : x)))
+      navigate(issueUrl(updated))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not approve this request.')
+    } finally {
+      setIssuingId(null)
     }
   }
 
@@ -188,12 +208,32 @@ export function InstitutionCertificateRequests() {
                             </div>
                           </div>
                         ) : (
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={() => setRejectingId(r.id)}>
-                              Reject
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="solid"
+                              size="sm"
+                              loading={issuingId === r.id}
+                              disabled={busyId === r.id}
+                              onClick={() => handleApproveAndIssue(r)}
+                            >
+                              Approve & Issue
                             </Button>
-                            <Button variant="solid" size="sm" loading={busyId === r.id} onClick={() => handleApprove(r.id)}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              loading={busyId === r.id}
+                              disabled={issuingId === r.id}
+                              onClick={() => handleApprove(r.id)}
+                            >
                               Approve
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={busyId === r.id || issuingId === r.id}
+                              onClick={() => setRejectingId(r.id)}
+                            >
+                              Reject
                             </Button>
                           </div>
                         )}
@@ -202,15 +242,7 @@ export function InstitutionCertificateRequests() {
 
                     {r.status === 'approved' && (
                       <div className="mt-2">
-                        <Button
-                          variant="solid"
-                          size="sm"
-                          onClick={() =>
-                            navigate(
-                              `/institution/credentials/issue?studentId=${r.student_id}&credentialType=${r.credential_type}&fulfillsRequestId=${r.id}`
-                            )
-                          }
-                        >
+                        <Button variant="solid" size="sm" onClick={() => navigate(issueUrl(r))}>
                           Issue Credential
                         </Button>
                       </div>
