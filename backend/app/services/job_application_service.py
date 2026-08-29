@@ -157,19 +157,21 @@ def apply_to_job(
     db.add(log)
     db.flush()
 
-    # A Job's owning company is always a registered, verified account — publish_job (the only
-    # way a job becomes visible enough to apply to) already requires that — so no directory-only
-    # guard is needed here, unlike the request/share paths above where a company_id can
-    # legitimately be reached before a request is ever approved.
-    notification_service.create_notification(
-        db,
-        user_id=grant.company.user_id,
-        title="New job application",
-        message=f"{student.user.full_name} applied to {job.title}",
-        activity_log_id=log.id,
-        link_entity_type="job_application",
-        link_entity_id=application.id,
-    )
+    # A Job's owning company is normally a registered, verified account — publish_job (the
+    # only way a job becomes visible enough to apply to) requires that. But directory-only
+    # rows (user_id IS NULL) can still end up with an OPEN job seeded directly outside that
+    # path (see scripts/seed_directory.py) — same guard as sharing_service's equivalent calls,
+    # so the application itself still succeeds even when there's no real recipient to notify.
+    if grant.company is not None and grant.company.user_id is not None:
+        notification_service.create_notification(
+            db,
+            user_id=grant.company.user_id,
+            title="New job application",
+            message=f"{student.user.full_name} applied to {job.title}",
+            activity_log_id=log.id,
+            link_entity_type="job_application",
+            link_entity_id=application.id,
+        )
 
     db.commit()
     db.refresh(application)

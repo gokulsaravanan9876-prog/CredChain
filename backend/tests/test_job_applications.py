@@ -16,6 +16,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as RawSession
 
 from app.models.activity_log import ActivityLog
+from app.models.company import Company
+from app.models.enums import JobEmploymentType, JobStatus
+from app.models.job import Job
 from app.models.job_application import JobApplication
 from app.models.notification import Notification
 from app.models.student import Student
@@ -464,3 +467,122 @@ def test_concurrent_duplicate_applications_only_one_succeeds(client, db_session)
 
     apps = db_session.query(JobApplication).filter(JobApplication.job_id == job_id).all()
     assert len(apps) == 1
+
+
+# ---------------------------------------------------------------------------
+# Directory-only company jobs (mirrors scripts/seed_directory.py's own
+# shape: a Company row with user_id=None, and an OPEN Job created directly
+# against it, bypassing create_job/publish_job entirely) must never crash
+# apply_to_job with a NOT NULL violation on notifications.user_id.
+# ---------------------------------------------------------------------------
+
+
+def _create_directory_only_job(db_session, *, title: str) -> Job:
+    """Same shape seed_directory.py produces: a directory-only Company (user_id=None)
+    with an OPEN Job created directly, never through create_job/publish_job."""
+    company = Company(name="Directory Only Co", user_id=None)
+    db_session.add(company)
+    db_session.commit()
+    db_session.refresh(company)
+
+    job = Job(
+        company_id=company.id,
+        title=title,
+        description="A real job, seeded directly like scripts/seed_directory.py does.",
+        employment_type=JobEmploymentType.FULL_TIME,
+        required_documents=["Migration Certificate"],
+        status=JobStatus.OPEN,
+    )
+    db_session.add(job)
+    db_session.commit()
+    db_session.refresh(job)
+    return job
+
+
+def test_directory_only_company_job_application_succeeds_without_notification(client, db_session):
+    inst = _register_institution(client, db_session, "app-dirjob-inst@test.credchain.dev", "App DirJob University")
+    student = _register_student(client, inst["institution_id"], "app-dirjob-stu@test.credchain.dev", "APP-DIRJOB")
+    job = _create_directory_only_job(db_session, title="Systems Engineer Trainee")
+    cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
+
+    resp = client.post(
+        "/api/students/me/applications",
+        json={"job_id": str(job.id), "credential_ids": [cred_id]},
+        headers=_auth_header(student["token"]),
+    )
+    assert resp.status_code == 201, resp.text
+    application_id = uuid_module.UUID(resp.json()["id"])
+
+    application = db_session.get(JobApplication, application_id)
+    assert application is not None
+    assert application.job_id == job.id
+
+    notifications = db_session.query(Notification).filter(Notification.link_entity_id == application_id).all()
+    assert notifications == []
+
+
+def test_registered_company_job_application_still_notifies_exactly_once(client, db_session):
+    verifier = _register_verifier(client, db_session, "app-notify-co@test.credchain.dev", "App Notify Co")
+    inst = _register_institution(client, db_session, "app-notify-inst@test.credchain.dev", "App Notify University")
+    student = _register_student(client, inst["institution_id"], "app-notify-stu@test.credchain.dev", "APP-NOTIFY")
+    job = _create_open_job(client, verifier["token"])
+    cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
+
+    resp = client.post(
+        "/api/students/me/applications",
+        json={"job_id": job["id"], "credential_ids": [cred_id]},
+        headers=_auth_header(student["token"]),
+    )
+    assert resp.status_code == 201, resp.text
+    application_id = uuid_module.UUID(resp.json()["id"])
+
+    notifications = db_session.query(Notification).filter(Notification.link_entity_id == application_id).all()
+    assert len(notifications) == 1
+    assert notifications[0].title == "New job application"
+    company = db_session.get(Company, uuid_module.UUID(verifier["company_id"]))
+    assert notifications[0].user_id == company.user_id
+
+
+def test_duplicate_application_to_directory_only_company_job_still_returns_409(client, db_session):
+    inst = _register_institution(client, db_session, "app-dirdup-inst@test.credchain.dev", "App DirDup University")
+    student = _register_student(client, inst["institution_id"], "app-dirdup-stu@test.credchain.dev", "APP-DIRDUP")
+    job = _create_directory_only_job(db_session, title="Duplicate-Prone Trainee Role")
+    cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
+
+    first = client.post(
+        "/api/students/me/applications",
+        json={"job_id": str(job.id), "credential_ids": [cred_id]},
+        headers=_auth_header(student["token"]),
+    )
+    assert first.status_code == 201, first.text
+
+    second = client.post(
+        "/api/students/me/applications",
+        json={"job_id": str(job.id), "credential_ids": [cred_id]},
+        headers=_auth_header(student["token"]),
+    )
+    assert second.status_code == 409
+    assert second.json()["detail"] == "You have already applied to this job"
+
+
+def test_directory_only_company_job_application_still_creates_activity_log(client, db_session):
+    inst = _register_institution(client, db_session, "app-dirlog-inst@test.credchain.dev", "App DirLog University")
+    student = _register_student(client, inst["institution_id"], "app-dirlog-stu@test.credchain.dev", "APP-DIRLOG")
+    job = _create_directory_only_job(db_session, title="Logged Trainee Role")
+    cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
+
+    resp = client.post(
+        "/api/students/me/applications",
+        json={"job_id": str(job.id), "credential_ids": [cred_id]},
+        headers=_auth_header(student["token"]),
+    )
+    assert resp.status_code == 201, resp.text
+    application_id = uuid_module.UUID(resp.json()["id"])
+
+    logs = (
+        db_session.query(ActivityLog)
+        .filter(ActivityLog.entity_type == "job_application", ActivityLog.entity_id == application_id)
+        .all()
+    )
+    assert len(logs) == 1
+    assert logs[0].action == "APPLICATION_SUBMITTED"
