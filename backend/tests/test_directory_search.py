@@ -19,10 +19,11 @@ def _auth_header(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _register_verifier(client, email, name):
+def _register_verifier(client, db_session, email, name):
+    company = _directory_company(db_session, name)
     resp = client.post(
         "/api/auth/register",
-        json={"email": email, "password": "Password123", "full_name": "Dir Verifier", "role": "verifier", "company_name": name},
+        json={"email": email, "password": "Password123", "full_name": "Dir Verifier", "role": "verifier", "company_id": str(company.id)},
     )
     body = resp.json()
     return {"token": body["access_token"], "company_id": body["user"]["company_id"]}
@@ -181,7 +182,7 @@ def test_institution_pagination_deterministic_and_total_accurate(client, db_sess
 
 def test_directory_only_company_is_publicly_listed_alongside_registered_companies(client, db_session):
     _directory_company(db_session, "Directory Only Corp", industry="Testing", location="Test City")
-    verifier = _register_verifier(client, "dir-search-co@test.credchain.dev", "Registered Search Co")
+    verifier = _register_verifier(client, db_session, "dir-search-co@test.credchain.dev", "Registered Search Co")
 
     resp = client.get("/api/companies")
     assert resp.status_code == 200
@@ -230,7 +231,7 @@ def test_company_country_filter_is_exact_match(client, db_session):
 
 
 def test_company_open_positions_count_reflects_only_open_jobs(client, db_session):
-    verifier = _register_verifier(client, "dir-openjobs@test.credchain.dev", "Open Jobs Co")
+    verifier = _register_verifier(client, db_session, "dir-openjobs@test.credchain.dev", "Open Jobs Co")
 
     draft = client.post("/api/companies/me/jobs", json=_job_payload(title="Draft Role"), headers=_auth_header(verifier["token"])).json()
     open_job = client.post("/api/companies/me/jobs", json=_job_payload(title="Open Role"), headers=_auth_header(verifier["token"])).json()
@@ -275,8 +276,8 @@ def test_company_page_size_is_capped_at_max(client, db_session):
 
 
 def test_job_company_id_search_and_degree_filters(client, db_session):
-    verifier_a = _register_verifier(client, "dir-job-co-a@test.credchain.dev", "Job Filter Co A")
-    verifier_b = _register_verifier(client, "dir-job-co-b@test.credchain.dev", "Job Filter Co B")
+    verifier_a = _register_verifier(client, db_session, "dir-job-co-a@test.credchain.dev", "Job Filter Co A")
+    verifier_b = _register_verifier(client, db_session, "dir-job-co-b@test.credchain.dev", "Job Filter Co B")
     student = _register_student(client, "dir-job-student@test.credchain.dev", "DIR-JOB-STU-1")
 
     job_a = client.post(

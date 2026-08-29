@@ -30,8 +30,14 @@ def _register(client, *, role, email, **extra):
     return resp.json()
 
 
-def _register_institution(client, email="inst@test.credchain.dev", name="Test University"):
-    body = _register(client, role="institution", email=email, institution_name=name)
+def _register_institution(client, db_session, email="inst@test.credchain.dev", name="Test University"):
+    from app.models.institution import Institution
+
+    institution = Institution(name=name)
+    db_session.add(institution)
+    db_session.commit()
+    db_session.refresh(institution)
+    body = _register(client, role="institution", email=email, institution_id=str(institution.id))
     return {"token": body["access_token"], "institution_id": body["user"]["institution_id"]}
 
 
@@ -46,8 +52,14 @@ def _register_student(client, db_session, institution_id, email="student@test.cr
     return {"token": body["access_token"], "student_id": student_id}
 
 
-def _register_verifier(client, email="verifier@test.credchain.dev", name="Test Company"):
-    body = _register(client, role="verifier", email=email, company_name=name)
+def _register_verifier(client, db_session, email="verifier@test.credchain.dev", name="Test Company"):
+    from app.models.company import Company
+
+    company = Company(name=name)
+    db_session.add(company)
+    db_session.commit()
+    db_session.refresh(company)
+    body = _register(client, role="verifier", email=email, company_id=str(company.id))
     return {"token": body["access_token"], "company_id": body["user"]["company_id"]}
 
 
@@ -87,11 +99,11 @@ def _issue_credential_no_cgpa(client, institution_token, student_id) -> dict:
 
 def _full_setup(client, db_session):
     """Institution + student with TWO credentials (degree, transcript) + verifier, no request/share yet."""
-    inst = _register_institution(client)
+    inst = _register_institution(client, db_session)
     student = _register_student(client, db_session, inst["institution_id"])
     degree = _issue_credential_no_cgpa(client, inst["token"], student["student_id"])
     transcript = _issue_credential(client, inst["token"], student["student_id"])
-    verifier = _register_verifier(client)
+    verifier = _register_verifier(client, db_session)
     return {"inst": inst, "student": student, "degree": degree, "transcript": transcript, "verifier": verifier}
 
 
@@ -432,7 +444,7 @@ def test_company_a_cannot_use_company_bs_share(client, db_session):
     req = _create_request(client, ctx["verifier"]["token"], ctx["student"]["student_id"])
     _approve(client, ctx["student"]["token"], req["id"], [ctx["degree"]["id"]])
 
-    company_b = _register_verifier(client, email="companyb@test.credchain.dev", name="Company B")
+    company_b = _register_verifier(client, db_session, email="companyb@test.credchain.dev", name="Company B")
     resp = client.post(
         "/api/verification/verify",
         json={"credential_id": ctx["degree"]["id"]},
@@ -601,7 +613,7 @@ def test_critical_end_to_end_flow(client, db_session):
 
 
 def test_critical_privacy_selective_disclosure(client, db_session):
-    inst = _register_institution(client, email="privacy-inst@test.credchain.dev", name="Privacy University")
+    inst = _register_institution(client, db_session, email="privacy-inst@test.credchain.dev", name="Privacy University")
     student = _register_student(
         client, db_session, inst["institution_id"], email="privacy-student@test.credchain.dev", identifier="STU-PRIV"
     )
@@ -610,7 +622,7 @@ def test_critical_privacy_selective_disclosure(client, db_session):
     migration = _issue_credential_field_free(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
     internship = _issue_credential_field_free(client, inst["token"], student["student_id"], "internship", "Internship Certificate")
 
-    verifier = _register_verifier(client, email="privacy-verifier@test.credchain.dev", name="Privacy Corp")
+    verifier = _register_verifier(client, db_session, email="privacy-verifier@test.credchain.dev", name="Privacy Corp")
 
     req = _create_request(
         client, verifier["token"], student["student_id"], requested=("Degree", "Final Transcript"), purpose="Hiring"

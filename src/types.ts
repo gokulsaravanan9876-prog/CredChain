@@ -84,11 +84,13 @@ export interface RegisterPayload {
   student_identifier?: string
   /** Real institution id from GET /api/institutions — never a free-typed value. */
   institution_id?: string
-  institution_name?: string
-  institution_registration_number?: string
-  company_name?: string
-  company_industry?: string
-  company_website?: string
+  /**
+   * Real company id from GET /api/companies — never a free-typed value. Institution/company
+   * registration is a CLAIM on an existing canonical directory record (see auth_service.register_user);
+   * there is deliberately no institution_name/company_name field here — a typed name can never
+   * create a new organization at signup, only a real existing row's id can be claimed.
+   */
+  company_id?: string
 }
 
 // ---------------------------------------------------------------------------

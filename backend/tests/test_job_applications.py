@@ -13,19 +13,31 @@ def _auth_header(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _register_verifier(client, email, name):
+def _register_verifier(client, db_session, email, name):
+    from app.models.company import Company
+
+    company = Company(name=name)
+    db_session.add(company)
+    db_session.commit()
+    db_session.refresh(company)
     resp = client.post(
         "/api/auth/register",
-        json={"email": email, "password": "Password123", "full_name": "App Verifier", "role": "verifier", "company_name": name},
+        json={"email": email, "password": "Password123", "full_name": "App Verifier", "role": "verifier", "company_id": str(company.id)},
     )
     body = resp.json()
     return {"token": body["access_token"], "company_id": body["user"]["company_id"]}
 
 
-def _register_institution(client, email, name):
+def _register_institution(client, db_session, email, name):
+    from app.models.institution import Institution
+
+    institution = Institution(name=name)
+    db_session.add(institution)
+    db_session.commit()
+    db_session.refresh(institution)
     resp = client.post(
         "/api/auth/register",
-        json={"email": email, "password": "Password123", "full_name": "App Inst", "role": "institution", "institution_name": name},
+        json={"email": email, "password": "Password123", "full_name": "App Inst", "role": "institution", "institution_id": str(institution.id)},
     )
     body = resp.json()
     return {"token": body["access_token"], "institution_id": body["user"]["institution_id"]}
@@ -73,8 +85,8 @@ def _create_open_job(client, verifier_token, **overrides):
 
 
 def test_student_can_apply_with_owned_credential_and_see_it_in_my_applications(client, db_session):
-    verifier = _register_verifier(client, "app-co-1@test.credchain.dev", "App Co 1")
-    inst = _register_institution(client, "app-inst-1@test.credchain.dev", "App University 1")
+    verifier = _register_verifier(client, db_session, "app-co-1@test.credchain.dev", "App Co 1")
+    inst = _register_institution(client, db_session, "app-inst-1@test.credchain.dev", "App University 1")
     student = _register_student(client, inst["institution_id"], "app-stu-1@test.credchain.dev", "APP-STU-1")
     job = _create_open_job(client, verifier["token"])
     cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
@@ -93,8 +105,8 @@ def test_student_can_apply_with_owned_credential_and_see_it_in_my_applications(c
 def test_cannot_apply_twice_or_to_closed_or_nonexistent_job(client, db_session):
     import uuid
 
-    verifier = _register_verifier(client, "app-co-2@test.credchain.dev", "App Co 2")
-    inst = _register_institution(client, "app-inst-2@test.credchain.dev", "App University 2")
+    verifier = _register_verifier(client, db_session, "app-co-2@test.credchain.dev", "App Co 2")
+    inst = _register_institution(client, db_session, "app-inst-2@test.credchain.dev", "App University 2")
     student = _register_student(client, inst["institution_id"], "app-stu-2@test.credchain.dev", "APP-STU-2")
     job = _create_open_job(client, verifier["token"])
     cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
@@ -123,9 +135,9 @@ def test_cannot_apply_twice_or_to_closed_or_nonexistent_job(client, db_session):
 
 
 def test_company_sees_only_its_own_applicants_never_other_companies_or_all_students(client, db_session):
-    verifier_a = _register_verifier(client, "app-co-a@test.credchain.dev", "App Co A")
-    verifier_b = _register_verifier(client, "app-co-b@test.credchain.dev", "App Co B")
-    inst = _register_institution(client, "app-inst-3@test.credchain.dev", "App University 3")
+    verifier_a = _register_verifier(client, db_session, "app-co-a@test.credchain.dev", "App Co A")
+    verifier_b = _register_verifier(client, db_session, "app-co-b@test.credchain.dev", "App Co B")
+    inst = _register_institution(client, db_session, "app-inst-3@test.credchain.dev", "App University 3")
     student = _register_student(client, inst["institution_id"], "app-stu-3@test.credchain.dev", "APP-STU-3")
     job_a = _create_open_job(client, verifier_a["token"])
     cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
@@ -139,8 +151,8 @@ def test_company_sees_only_its_own_applicants_never_other_companies_or_all_stude
 
 
 def test_company_sees_shared_credential_verify_flow_matching_case(client, db_session):
-    verifier = _register_verifier(client, "app-co-4@test.credchain.dev", "App Co 4")
-    inst = _register_institution(client, "app-inst-4@test.credchain.dev", "App University 4")
+    verifier = _register_verifier(client, db_session, "app-co-4@test.credchain.dev", "App Co 4")
+    inst = _register_institution(client, db_session, "app-inst-4@test.credchain.dev", "App University 4")
     student = _register_student(client, inst["institution_id"], "app-stu-4@test.credchain.dev", "APP-STU-4")
     job = _create_open_job(client, verifier["token"], required_documents=["Migration Certificate"])
     cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
@@ -158,8 +170,8 @@ def test_company_sees_shared_credential_verify_flow_matching_case(client, db_ses
 
 
 def test_wrong_credential_shared_produces_type_mismatch_not_verified(client, db_session):
-    verifier = _register_verifier(client, "app-co-5@test.credchain.dev", "App Co 5")
-    inst = _register_institution(client, "app-inst-5@test.credchain.dev", "App University 5")
+    verifier = _register_verifier(client, db_session, "app-co-5@test.credchain.dev", "App Co 5")
+    inst = _register_institution(client, db_session, "app-inst-5@test.credchain.dev", "App University 5")
     student = _register_student(client, inst["institution_id"], "app-stu-5@test.credchain.dev", "APP-STU-5")
     # Job requires Migration Certificate, but the student only shares a Degree.
     job = _create_open_job(client, verifier["token"], required_documents=["Migration Certificate"])
@@ -182,8 +194,8 @@ def test_wrong_credential_shared_produces_type_mismatch_not_verified(client, db_
 
 
 def test_company_decision_workflow_whitelisted_transitions(client, db_session):
-    verifier = _register_verifier(client, "app-co-6@test.credchain.dev", "App Co 6")
-    inst = _register_institution(client, "app-inst-6@test.credchain.dev", "App University 6")
+    verifier = _register_verifier(client, db_session, "app-co-6@test.credchain.dev", "App Co 6")
+    inst = _register_institution(client, db_session, "app-inst-6@test.credchain.dev", "App University 6")
     student = _register_student(client, inst["institution_id"], "app-stu-6@test.credchain.dev", "APP-STU-6")
     job = _create_open_job(client, verifier["token"])
     cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
@@ -208,9 +220,9 @@ def test_company_decision_workflow_whitelisted_transitions(client, db_session):
 
 
 def test_student_cannot_set_application_status_and_company_cannot_touch_others_application(client, db_session):
-    verifier_a = _register_verifier(client, "app-co-x@test.credchain.dev", "App Co X")
-    verifier_b = _register_verifier(client, "app-co-y@test.credchain.dev", "App Co Y")
-    inst = _register_institution(client, "app-inst-7@test.credchain.dev", "App University 7")
+    verifier_a = _register_verifier(client, db_session, "app-co-x@test.credchain.dev", "App Co X")
+    verifier_b = _register_verifier(client, db_session, "app-co-y@test.credchain.dev", "App Co Y")
+    inst = _register_institution(client, db_session, "app-inst-7@test.credchain.dev", "App University 7")
     student = _register_student(client, inst["institution_id"], "app-stu-7@test.credchain.dev", "APP-STU-7")
     job = _create_open_job(client, verifier_a["token"])
     cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")

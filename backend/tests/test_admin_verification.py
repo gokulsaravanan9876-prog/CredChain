@@ -30,13 +30,25 @@ def _register(client, *, email, role, full_name="Test User", **extra):
     return resp.json()
 
 
-def _register_institution(client, email, name):
-    body = _register(client, email=email, role="institution", institution_name=name)
+def _register_institution(client, db_session, email, name):
+    from app.models.institution import Institution
+
+    institution = Institution(name=name)
+    db_session.add(institution)
+    db_session.commit()
+    db_session.refresh(institution)
+    body = _register(client, email=email, role="institution", institution_id=str(institution.id))
     return {"token": body["access_token"], "institution_id": body["user"]["institution_id"]}
 
 
-def _register_verifier(client, email, name):
-    body = _register(client, email=email, role="verifier", company_name=name)
+def _register_verifier(client, db_session, email, name):
+    from app.models.company import Company
+
+    company = Company(name=name)
+    db_session.add(company)
+    db_session.commit()
+    db_session.refresh(company)
+    body = _register(client, email=email, role="verifier", company_id=str(company.id))
     return {"token": body["access_token"], "company_id": body["user"]["company_id"]}
 
 
@@ -105,7 +117,7 @@ def test_admin_role_cannot_self_register(client, db_session):
 )
 def test_non_admin_roles_get_403_on_admin_endpoints(client, db_session, role, register_fn, email):
     if role == "student":
-        inst = _register_institution(client, "auth-owner@test.credchain.dev", "Auth Owner Uni")
+        inst = _register_institution(client, db_session, "auth-owner@test.credchain.dev", "Auth Owner Uni")
         token = _register_student(client, inst["institution_id"], email, "AUTH-STU")["token"]
     else:
         token = register_fn(client, email, "Auth Test Org")["token"]
@@ -126,7 +138,7 @@ def test_unauthenticated_request_to_admin_endpoint_is_401(client, db_session):
 def test_admin_can_list_approve_and_reject_institutions(client, db_session):
     admin_token = _admin_token(client, db_session)
 
-    pending_inst = _register_institution(client, "pending-inst@test.credchain.dev", "Pending University")
+    pending_inst = _register_institution(client, db_session, "pending-inst@test.credchain.dev", "Pending University")
     _set_institution_status(db_session, pending_inst["institution_id"], "pending")
 
     listing = client.get("/api/admin/institutions/pending", headers=_auth_header(admin_token))
@@ -144,7 +156,7 @@ def test_admin_can_list_approve_and_reject_institutions(client, db_session):
     again = client.post(f"/api/admin/institutions/{pending_inst['institution_id']}/approve", headers=_auth_header(admin_token))
     assert again.status_code == 409
 
-    other_inst = _register_institution(client, "reject-inst@test.credchain.dev", "Reject University")
+    other_inst = _register_institution(client, db_session, "reject-inst@test.credchain.dev", "Reject University")
     _set_institution_status(db_session, other_inst["institution_id"], "pending")
     reject = client.post(
         f"/api/admin/institutions/{other_inst['institution_id']}/reject",
@@ -157,7 +169,7 @@ def test_admin_can_list_approve_and_reject_institutions(client, db_session):
 
 def test_admin_reject_requires_a_reason(client, db_session):
     admin_token = _admin_token(client, db_session)
-    inst = _register_institution(client, "reason-inst@test.credchain.dev", "Reason University")
+    inst = _register_institution(client, db_session, "reason-inst@test.credchain.dev", "Reason University")
     _set_institution_status(db_session, inst["institution_id"], "pending")
     resp = client.post(f"/api/admin/institutions/{inst['institution_id']}/reject", json={"reason": ""}, headers=_auth_header(admin_token))
     assert resp.status_code == 422
@@ -180,7 +192,7 @@ def test_admin_cannot_verify_a_directory_only_institution(client, db_session):
 def test_admin_can_list_approve_and_reject_companies(client, db_session):
     admin_token = _admin_token(client, db_session)
 
-    pending_co = _register_verifier(client, "pending-co@test.credchain.dev", "Pending Co")
+    pending_co = _register_verifier(client, db_session, "pending-co@test.credchain.dev", "Pending Co")
     _set_company_status(db_session, pending_co["company_id"], "pending")
 
     listing = client.get("/api/admin/companies/pending", headers=_auth_header(admin_token))
@@ -192,7 +204,7 @@ def test_admin_can_list_approve_and_reject_companies(client, db_session):
     assert approve.status_code == 200
     assert approve.json()["verification_status"] == "verified"
 
-    other_co = _register_verifier(client, "reject-co@test.credchain.dev", "Reject Co")
+    other_co = _register_verifier(client, db_session, "reject-co@test.credchain.dev", "Reject Co")
     _set_company_status(db_session, other_co["company_id"], "pending")
     reject = client.post(
         f"/api/admin/companies/{other_co['company_id']}/reject",
@@ -207,7 +219,7 @@ def test_admin_can_list_approve_and_reject_companies(client, db_session):
 
 
 def test_pending_institution_cannot_issue_credentials(client, db_session):
-    inst = _register_institution(client, "gate-pending-inst@test.credchain.dev", "Gate Pending Uni")
+    inst = _register_institution(client, db_session, "gate-pending-inst@test.credchain.dev", "Gate Pending Uni")
     student = _register_student(client, inst["institution_id"], "gate-pending-stu@test.credchain.dev", "GATE-PEND")
     _set_institution_status(db_session, inst["institution_id"], "pending")
 
@@ -217,7 +229,7 @@ def test_pending_institution_cannot_issue_credentials(client, db_session):
 
 
 def test_rejected_institution_cannot_issue_credentials(client, db_session):
-    inst = _register_institution(client, "gate-rejected-inst@test.credchain.dev", "Gate Rejected Uni")
+    inst = _register_institution(client, db_session, "gate-rejected-inst@test.credchain.dev", "Gate Rejected Uni")
     student = _register_student(client, inst["institution_id"], "gate-rejected-stu@test.credchain.dev", "GATE-REJ")
     _set_institution_status(db_session, inst["institution_id"], "rejected")
 
@@ -228,7 +240,7 @@ def test_rejected_institution_cannot_issue_credentials(client, db_session):
 
 def test_verified_institution_can_issue_credentials(client, db_session):
     """Verified is the auto-verified default the conftest.py hook already applies on registration — this is the control case proving the gate doesn't over-block."""
-    inst = _register_institution(client, "gate-verified-inst@test.credchain.dev", "Gate Verified Uni")
+    inst = _register_institution(client, db_session, "gate-verified-inst@test.credchain.dev", "Gate Verified Uni")
     student = _register_student(client, inst["institution_id"], "gate-verified-stu@test.credchain.dev", "GATE-OK")
 
     resp = _issue(client, inst["token"], student["student_id"])
@@ -236,7 +248,7 @@ def test_verified_institution_can_issue_credentials(client, db_session):
 
 
 def test_bulk_issuance_also_blocked_for_pending_institution(client, db_session):
-    inst = _register_institution(client, "gate-bulk-inst@test.credchain.dev", "Gate Bulk Uni")
+    inst = _register_institution(client, db_session, "gate-bulk-inst@test.credchain.dev", "Gate Bulk Uni")
     student = _register_student(client, inst["institution_id"], "gate-bulk-stu@test.credchain.dev", "GATE-BULK")
     _set_institution_status(db_session, inst["institution_id"], "pending")
 
@@ -256,7 +268,7 @@ def _job_payload(**overrides):
 
 
 def test_pending_company_cannot_publish_job(client, db_session):
-    verifier = _register_verifier(client, "gate-pending-co@test.credchain.dev", "Gate Pending Co")
+    verifier = _register_verifier(client, db_session, "gate-pending-co@test.credchain.dev", "Gate Pending Co")
     _set_company_status(db_session, verifier["company_id"], "pending")
 
     create = client.post("/api/companies/me/jobs", json=_job_payload(), headers=_auth_header(verifier["token"]))
@@ -269,7 +281,7 @@ def test_pending_company_cannot_publish_job(client, db_session):
 
 
 def test_rejected_company_cannot_publish_job(client, db_session):
-    verifier = _register_verifier(client, "gate-rejected-co@test.credchain.dev", "Gate Rejected Co")
+    verifier = _register_verifier(client, db_session, "gate-rejected-co@test.credchain.dev", "Gate Rejected Co")
     create = client.post("/api/companies/me/jobs", json=_job_payload(), headers=_auth_header(verifier["token"]))
     job_id = create.json()["id"]
     _set_company_status(db_session, verifier["company_id"], "rejected")
@@ -280,7 +292,7 @@ def test_rejected_company_cannot_publish_job(client, db_session):
 
 
 def test_verified_company_can_publish_job(client, db_session):
-    verifier = _register_verifier(client, "gate-verified-co@test.credchain.dev", "Gate Verified Co")
+    verifier = _register_verifier(client, db_session, "gate-verified-co@test.credchain.dev", "Gate Verified Co")
     create = client.post("/api/companies/me/jobs", json=_job_payload(), headers=_auth_header(verifier["token"]))
     job_id = create.json()["id"]
 
@@ -296,7 +308,7 @@ def test_existing_registered_institution_keeps_working_end_to_end(client, db_ses
     """Simulates a pre-Phase-A account: the migration grandfathers real registered rows to
     'verified' — here that's simply the auto-verified state every registration already gets in
     this test suite, exercised through the exact same student/credential flow as before Phase A."""
-    inst = _register_institution(client, "existing-inst@test.credchain.dev", "Existing University")
+    inst = _register_institution(client, db_session, "existing-inst@test.credchain.dev", "Existing University")
     student = _register_student(client, inst["institution_id"], "existing-stu@test.credchain.dev", "EXIST-STU")
     assert _issue(client, inst["token"], student["student_id"]).status_code == 201
 
@@ -317,9 +329,9 @@ def test_directory_only_institution_is_not_a_platform_account(client, db_session
 
 
 def test_jobs_endpoint_returns_paginated_envelope(client, db_session):
-    inst = _register_institution(client, "jobs-page-inst@test.credchain.dev", "Jobs Page Uni")
+    inst = _register_institution(client, db_session, "jobs-page-inst@test.credchain.dev", "Jobs Page Uni")
     student = _register_student(client, inst["institution_id"], "jobs-page-stu@test.credchain.dev", "JOBS-PAGE")
-    verifier = _register_verifier(client, "jobs-page-co@test.credchain.dev", "Jobs Page Co")
+    verifier = _register_verifier(client, db_session, "jobs-page-co@test.credchain.dev", "Jobs Page Co")
 
     for n in range(3):
         job = client.post("/api/companies/me/jobs", json=_job_payload(title=f"Role {n}"), headers=_auth_header(verifier["token"])).json()
@@ -341,16 +353,16 @@ def test_jobs_endpoint_returns_paginated_envelope(client, db_session):
 
 
 def test_jobs_page_size_over_max_is_rejected(client, db_session):
-    inst = _register_institution(client, "jobs-max-inst@test.credchain.dev", "Jobs Max Uni")
+    inst = _register_institution(client, db_session, "jobs-max-inst@test.credchain.dev", "Jobs Max Uni")
     student = _register_student(client, inst["institution_id"], "jobs-max-stu@test.credchain.dev", "JOBS-MAX")
     resp = client.get("/api/jobs", params={"page_size": 500}, headers=_auth_header(student["token"]))
     assert resp.status_code == 422
 
 
 def test_jobs_pagination_respects_search_filter_and_total(client, db_session):
-    inst = _register_institution(client, "jobs-search-inst@test.credchain.dev", "Jobs Search Uni")
+    inst = _register_institution(client, db_session, "jobs-search-inst@test.credchain.dev", "Jobs Search Uni")
     student = _register_student(client, inst["institution_id"], "jobs-search-stu@test.credchain.dev", "JOBS-SEARCH")
-    verifier = _register_verifier(client, "jobs-search-co@test.credchain.dev", "Jobs Search Co")
+    verifier = _register_verifier(client, db_session, "jobs-search-co@test.credchain.dev", "Jobs Search Co")
 
     for title in ("Backend Engineer", "Frontend Engineer", "Mechanical Technician"):
         job = client.post("/api/companies/me/jobs", json=_job_payload(title=title), headers=_auth_header(verifier["token"])).json()

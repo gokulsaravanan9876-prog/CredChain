@@ -3,6 +3,7 @@
 # exceptions into HTTP responses.
 # ---------------------------------------------------------------------------
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from ..models.company import Company
@@ -25,6 +26,18 @@ class MissingProfileFieldsError(Exception):
 
 class InstitutionNotFoundError(Exception):
     pass
+
+
+class CompanyNotFoundError(Exception):
+    pass
+
+
+class InstitutionAlreadyClaimedError(Exception):
+    """Raised when the selected directory Institution already has a registered account (user_id is not NULL)."""
+
+
+class CompanyAlreadyClaimedError(Exception):
+    """Raised when the selected directory Company already has a registered account (user_id is not NULL)."""
 
 
 class InvalidCredentialsError(Exception):
@@ -51,13 +64,23 @@ def register_user(db: Session, payload: RegisterRequest) -> User:
     Institution and verifier(company) registration is open to anyone who
     calls this endpoint (same as student registration) and the account is
     immediately usable for login/browsing — but NOT for the two actions that
-    require real trust: a new Institution/Company row is created with
-    verification_status=PENDING (the model's default), and
-    credential_service.issue_signed_credential / job_service.publish_job
-    both refuse to act until an admin has approved the account (see
-    services/admin_service.py, routes/admin.py). role=admin can never reach
-    this function — see the AdminSelfRegistrationError check above; admin
-    accounts are provisioned only via backend/scripts/create_admin.py.
+    require real trust: credential_service.issue_signed_credential /
+    job_service.publish_job both refuse to act until an admin has approved
+    the account (see services/admin_service.py, routes/admin.py). role=admin
+    can never reach this function — see the AdminSelfRegistrationError check
+    above; admin accounts are provisioned only via backend/scripts/create_admin.py.
+
+    Institution/company registration is a CLAIM on an existing canonical
+    directory record, never a free-text creation of a new one — this is the
+    fix for the bug where an institution account and a student both meaning
+    "Aalto University" could end up pointing at two different Institution
+    rows. The directory (~10,000+ imported institutions/companies, see
+    scripts/import_institutions.py / import_companies.py) is the single
+    source of truth for organization identity; registering only ever sets
+    user_id on an existing row, exactly like student_service.link_student_to_institution
+    already does for students. The verification_status stays whatever the
+    row's default already is (PENDING for a fresh directory row) unless the
+    Phase A migration's grandfathering already marked it VERIFIED.
     """
     if payload.role == UserRole.ADMIN:
         raise AdminSelfRegistrationError()
@@ -88,31 +111,45 @@ def register_user(db: Session, payload: RegisterRequest) -> User:
         db.add(Student(user_id=user.id, student_identifier=payload.student_identifier, institution_id=institution_id))
 
     elif payload.role == UserRole.INSTITUTION:
-        if not payload.institution_name:
-            raise MissingProfileFieldsError("institution_name is required for institution registration")
-        institution = Institution(
-            user_id=user.id,
-            name=payload.institution_name,
-            registration_number=payload.institution_registration_number,
+        if not payload.institution_id:
+            raise MissingProfileFieldsError("institution_id is required for institution registration")
+        institution = db.get(Institution, payload.institution_id)
+        if institution is None:
+            raise InstitutionNotFoundError()
+        # Atomic conditional claim: a plain Core UPDATE (not an ORM attribute
+        # assignment) whose WHERE clause re-checks user_id IS NULL at the moment
+        # the database actually applies it. Postgres takes a row lock for this
+        # UPDATE, so if two registrations race for the same institution, the
+        # second one's UPDATE blocks until the first commits, then re-evaluates
+        # the WHERE clause and matches zero rows — rowcount tells us which
+        # happened, with no separate SELECT-then-write race window and no
+        # extra locking machinery needed.
+        result = db.execute(
+            update(Institution).where(Institution.id == institution.id, Institution.user_id.is_(None)).values(user_id=user.id)
         )
-        db.add(institution)
-        db.flush()  # assigns institution.id, needed as the signing-key filename
-        # Gives every new institution a stable signing identity at creation
+        if result.rowcount == 0:
+            raise InstitutionAlreadyClaimedError()
+        db.refresh(institution)
+        # Gives every claimed institution a stable signing identity at claim
         # time rather than lazily on first issuance — ensure_institution_keypair
-        # is idempotent, so this is safe to call unconditionally here.
+        # is idempotent (a directory row imported with no keypair gets one now;
+        # one that already has a public_key, e.g. re-claimed after a rejected
+        # account was never re-registered, is left untouched), so this is safe
+        # to call unconditionally here.
         signing_service.ensure_institution_keypair(db, institution)
 
     elif payload.role == UserRole.VERIFIER:
-        if not payload.company_name:
-            raise MissingProfileFieldsError("company_name is required for verifier registration")
-        db.add(
-            Company(
-                user_id=user.id,
-                name=payload.company_name,
-                industry=payload.company_industry,
-                website=payload.company_website,
-            )
+        if not payload.company_id:
+            raise MissingProfileFieldsError("company_id is required for verifier registration")
+        company = db.get(Company, payload.company_id)
+        if company is None:
+            raise CompanyNotFoundError()
+        result = db.execute(
+            update(Company).where(Company.id == company.id, Company.user_id.is_(None)).values(user_id=user.id)
         )
+        if result.rowcount == 0:
+            raise CompanyAlreadyClaimedError()
+        db.refresh(company)
 
     db.commit()
     db.refresh(user)

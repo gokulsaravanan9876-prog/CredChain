@@ -17,7 +17,7 @@ class RegisterRequest(BaseModel):
     full_name: str = Field(min_length=1, max_length=255)
     role: UserRole
 
-    # Role-specific fields needed to create the matching profile row.
+    # Role-specific fields needed to attach the matching profile row.
     # Exactly one group is required, depending on `role` — validated in
     # auth_service.register_user, not here, since it's cross-field logic.
     student_identifier: str | None = Field(default=None, max_length=100)
@@ -28,12 +28,17 @@ class RegisterRequest(BaseModel):
     # never trusted as-is.
     institution_id: uuid.UUID | None = Field(default=None)
 
-    institution_name: str | None = Field(default=None, max_length=255)
-    institution_registration_number: str | None = Field(default=None, max_length=100)
-
-    company_name: str | None = Field(default=None, max_length=255)
-    company_industry: str | None = Field(default=None, max_length=255)
-    company_website: str | None = Field(default=None, max_length=255)
+    # Institution/company registration is a CLAIM on an existing canonical directory
+    # record, never free-text creation — the directory is the single source of truth
+    # for organization identity (see docs/DIRECTORY.md and admin_service.py). The
+    # frontend's registration form requires the user to search and select a real
+    # directory row; this id is the only thing that reaches the backend. There is
+    # deliberately no institution_name/company_name (etc.) field here anymore — a
+    # typed name can never create a new organization at signup, only db.get() against
+    # a real existing row can (auth_service.register_user), which is what makes it
+    # impossible for two different accounts to accidentally end up as two different
+    # Institution/Company rows for the same real-world organization.
+    company_id: uuid.UUID | None = Field(default=None)
 
     @field_validator("password")
     @classmethod

@@ -13,10 +13,16 @@ def _auth_header(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _register_institution(client, email, name):
+def _register_institution(client, db_session, email, name):
+    from app.models.institution import Institution
+
+    institution = Institution(name=name)
+    db_session.add(institution)
+    db_session.commit()
+    db_session.refresh(institution)
     resp = client.post(
         "/api/auth/register",
-        json={"email": email, "password": "Password123", "full_name": "Cert Inst Admin", "role": "institution", "institution_name": name},
+        json={"email": email, "password": "Password123", "full_name": "Cert Inst Admin", "role": "institution", "institution_id": str(institution.id)},
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
@@ -40,7 +46,7 @@ def _register_student(client, institution_id, email, identifier):
 
 
 def test_student_can_create_and_list_own_certificate_request(client, db_session):
-    inst = _register_institution(client, "cert-inst-1@test.credchain.dev", "Cert University 1")
+    inst = _register_institution(client, db_session, "cert-inst-1@test.credchain.dev", "Cert University 1")
     student = _register_student(client, inst["institution_id"], "cert-stu-1@test.credchain.dev", "CERT-STU-1")
 
     resp = client.post(
@@ -59,8 +65,8 @@ def test_student_can_create_and_list_own_certificate_request(client, db_session)
 
 
 def test_student_cannot_request_from_unaffiliated_institution(client, db_session):
-    inst_a = _register_institution(client, "cert-inst-a@test.credchain.dev", "Cert University A")
-    inst_b = _register_institution(client, "cert-inst-b@test.credchain.dev", "Cert University B")
+    inst_a = _register_institution(client, db_session, "cert-inst-a@test.credchain.dev", "Cert University A")
+    inst_b = _register_institution(client, db_session, "cert-inst-b@test.credchain.dev", "Cert University B")
     student = _register_student(client, inst_a["institution_id"], "cert-stu-a@test.credchain.dev", "CERT-STU-A")
 
     resp = client.post(
@@ -72,7 +78,7 @@ def test_student_cannot_request_from_unaffiliated_institution(client, db_session
 
 
 def test_unlinked_student_cannot_request_any_certificate(client, db_session):
-    inst = _register_institution(client, "cert-inst-unlinked@test.credchain.dev", "Cert Unlinked University")
+    inst = _register_institution(client, db_session, "cert-inst-unlinked@test.credchain.dev", "Cert Unlinked University")
     resp = client.post(
         "/api/auth/register",
         json={
@@ -94,7 +100,7 @@ def test_unlinked_student_cannot_request_any_certificate(client, db_session):
 
 
 def test_institution_can_approve_and_reject(client, db_session):
-    inst = _register_institution(client, "cert-inst-2@test.credchain.dev", "Cert University 2")
+    inst = _register_institution(client, db_session, "cert-inst-2@test.credchain.dev", "Cert University 2")
     student = _register_student(client, inst["institution_id"], "cert-stu-2@test.credchain.dev", "CERT-STU-2")
 
     r1 = client.post(
@@ -127,8 +133,8 @@ def test_institution_can_approve_and_reject(client, db_session):
 
 
 def test_cross_institution_cannot_see_or_act_on_requests(client, db_session):
-    inst_a = _register_institution(client, "cert-inst-xa@test.credchain.dev", "Cert University XA")
-    inst_b = _register_institution(client, "cert-inst-xb@test.credchain.dev", "Cert University XB")
+    inst_a = _register_institution(client, db_session, "cert-inst-xa@test.credchain.dev", "Cert University XA")
+    inst_b = _register_institution(client, db_session, "cert-inst-xb@test.credchain.dev", "Cert University XB")
     student = _register_student(client, inst_a["institution_id"], "cert-stu-xa@test.credchain.dev", "CERT-STU-XA")
 
     req = client.post(
@@ -145,7 +151,7 @@ def test_cross_institution_cannot_see_or_act_on_requests(client, db_session):
 
 
 def test_request_is_fulfilled_only_after_real_issuance_not_on_approval(client, db_session):
-    inst = _register_institution(client, "cert-inst-3@test.credchain.dev", "Cert University 3")
+    inst = _register_institution(client, db_session, "cert-inst-3@test.credchain.dev", "Cert University 3")
     student = _register_student(client, inst["institution_id"], "cert-stu-3@test.credchain.dev", "CERT-STU-3")
 
     req = client.post(
@@ -179,8 +185,8 @@ def test_request_is_fulfilled_only_after_real_issuance_not_on_approval(client, d
 
 
 def test_fulfilling_someone_elses_request_is_rejected(client, db_session):
-    inst_a = _register_institution(client, "cert-inst-fa@test.credchain.dev", "Cert University FA")
-    inst_b = _register_institution(client, "cert-inst-fb@test.credchain.dev", "Cert University FB")
+    inst_a = _register_institution(client, db_session, "cert-inst-fa@test.credchain.dev", "Cert University FA")
+    inst_b = _register_institution(client, db_session, "cert-inst-fb@test.credchain.dev", "Cert University FB")
     student_a = _register_student(client, inst_a["institution_id"], "cert-stu-fa@test.credchain.dev", "CERT-STU-FA")
     student_b = _register_student(client, inst_b["institution_id"], "cert-stu-fb@test.credchain.dev", "CERT-STU-FB")
 

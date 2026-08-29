@@ -63,6 +63,12 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenRe
         raise HTTPException(status_code=422, detail=str(exc))
     except auth_service.InstitutionNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Selected institution was not found")
+    except auth_service.CompanyNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Selected company was not found")
+    except auth_service.InstitutionAlreadyClaimedError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This institution already has a registered account.")
+    except auth_service.CompanyAlreadyClaimedError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This company already has a registered account.")
 
     token = create_access_token(subject=user.id, role=user.role.value)
     return TokenResponse(access_token=token, user=_to_user_response(user))

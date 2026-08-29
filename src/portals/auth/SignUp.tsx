@@ -4,10 +4,10 @@ import { Navigate, useNavigate, Link } from 'react-router-dom'
 import { ShieldCheck, Search, Mail, KeyRound, User } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { ApiError } from '../../lib/apiClient'
-import { getInstitutions } from '../../lib/api'
+import { getInstitutions, getRealCompanies } from '../../lib/api'
 import { Button, RoleBackground, CredentialCard3D } from '../../components/ui'
 import { Select } from '../../components/ui/Input'
-import type { Role, RegisterPayload, InstitutionSummary } from '../../types'
+import type { Role, RegisterPayload, InstitutionSummary, Company } from '../../types'
 import { cx } from '../../lib/utils'
 
 const ROLE_HOME: Record<Role, string> = {
@@ -47,6 +47,16 @@ const WORLD_COPY: Record<Role, { headline: string; sub: string }> = {
  * functionality Stitch's own single auth screen doesn't need to express,
  * since Stitch's reference is mobile-only and has no room for it) — restyled
  * to sit behind the same centered composition rather than a desktop split.
+ *
+ * Institution/company "signup" is a CLAIM on an existing canonical directory
+ * record, never free-text creation of a new one (see auth_service.register_user):
+ * both roles get the exact same debounced server-side search selector the
+ * student role already used for its (optional) institution link, just
+ * required instead of optional, and backed by the company directory too.
+ * This is the actual fix for CredChain's duplicate-organization bug — a
+ * student and an institution account meaning the same real "Aalto University"
+ * now always resolve to the same Institution.id, because there is no other
+ * way for an institution/verifier account to come into existence.
  */
 export function SignUp() {
   const { user, register } = useAuth()
@@ -57,24 +67,26 @@ export function SignUp() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [studentIdentifier, setStudentIdentifier] = useState('')
+
   const [institutions, setInstitutions] = useState<InstitutionSummary[]>([])
   const [institutionId, setInstitutionId] = useState('')
   const [institutionSearch, setInstitutionSearch] = useState('')
-  const [institutionName, setInstitutionName] = useState('')
-  const [institutionRegistrationNumber, setInstitutionRegistrationNumber] = useState('')
-  const [companyName, setCompanyName] = useState('')
-  const [companyIndustry, setCompanyIndustry] = useState('')
-  const [companyWebsite, setCompanyWebsite] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
   const [institutionsLoading, setInstitutionsLoading] = useState(false)
   const [institutionsError, setInstitutionsError] = useState<string | null>(null)
 
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [companyId, setCompanyId] = useState('')
+  const [companySearch, setCompanySearch] = useState('')
+  const [companiesLoading, setCompaniesLoading] = useState(false)
+  const [companiesError, setCompaniesError] = useState<string | null>(null)
+
+  const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
   // Debounced, backend-searched (not a client-side filter over a fixed snapshot — the directory
-  // now holds 10,000+ real institutions, so only the matching page is ever fetched). Mirrors the
-  // debounce pattern already used by the full Institutions directory page.
+  // holds 10,000+ real institutions/companies, so only the matching page is ever fetched).
   useEffect(() => {
-    if (role !== 'student') return
+    if (role !== 'student' && role !== 'institution') return
     const handle = setTimeout(() => {
       setInstitutionsLoading(true)
       setInstitutionsError(null)
@@ -86,11 +98,34 @@ export function SignUp() {
     return () => clearTimeout(handle)
   }, [role, institutionSearch])
 
+  useEffect(() => {
+    if (role !== 'verifier') return
+    const handle = setTimeout(() => {
+      setCompaniesLoading(true)
+      setCompaniesError(null)
+      getRealCompanies({ search: companySearch.trim() || undefined })
+        .then(setCompanies)
+        .catch((err) => setCompaniesError(err instanceof ApiError ? err.message : 'Could not load companies.'))
+        .finally(() => setCompaniesLoading(false))
+    }, 300)
+    return () => clearTimeout(handle)
+  }, [role, companySearch])
+
   if (user) return <Navigate to={ROLE_HOME[user.role]} replace />
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+
+    if (role === 'institution' && !institutionId) {
+      setError('Select your institution from the directory to continue.')
+      return
+    }
+    if (role === 'verifier' && !companyId) {
+      setError('Select your company from the directory to continue.')
+      return
+    }
+
     setSubmitting(true)
 
     const payload: RegisterPayload = { email, password, full_name: fullName, role }
@@ -99,13 +134,10 @@ export function SignUp() {
       if (institutionId) payload.institution_id = institutionId
     }
     if (role === 'institution') {
-      payload.institution_name = institutionName
-      if (institutionRegistrationNumber) payload.institution_registration_number = institutionRegistrationNumber
+      payload.institution_id = institutionId
     }
     if (role === 'verifier') {
-      payload.company_name = companyName
-      if (companyIndustry) payload.company_industry = companyIndustry
-      if (companyWebsite) payload.company_website = companyWebsite
+      payload.company_id = companyId
     }
 
     try {
@@ -125,8 +157,12 @@ export function SignUp() {
       navigate(ROLE_HOME[registeredUser.role], { replace: true })
     } catch (err) {
       if (err instanceof ApiError) {
+        // 409 covers both "email already registered" and "this institution/company already has a
+        // registered account" — the backend's detail text is already specific and safe to show
+        // as-is (see routes/auth.py), so no need (or ability) to guess which one happened here.
         if (err.status === 0) setError('Server unavailable. Please try again in a moment.')
-        else if (err.status === 409) setError('An account with this email already exists.')
+        else if (err.status === 409) setError(err.message)
+        else if (err.status === 404) setError(err.message)
         else if (err.status === 422) setError('Please check that all required fields are filled in correctly.')
         else setError('Something went wrong. Please try again.')
       } else {
@@ -209,57 +245,53 @@ export function SignUp() {
                   <input type="text" value={studentIdentifier} onChange={(e) => setStudentIdentifier(e.target.value)} required className="w-full bg-transparent text-sm text-ink outline-none" />
                 </RecessedField>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="ml-1 text-[11px] font-medium uppercase tracking-[0.1em] text-faint">Institution (optional — link later)</label>
-                  <div className="flex items-center gap-3 rounded-xl border border-line bg-canvas px-4 py-3 shadow-[inset_0_4px_10px_rgba(0,0,0,0.5)]">
-                    <Search className="h-[18px] w-[18px] shrink-0 text-faint" strokeWidth={2} />
-                    <input
-                      value={institutionSearch}
-                      onChange={(e) => setInstitutionSearch(e.target.value)}
-                      placeholder="Search institutions"
-                      className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-faint"
-                    />
-                  </div>
-                  <Select value={institutionId} onChange={(e) => setInstitutionId(e.target.value)} className="mt-1">
-                    <option value="">No institution selected</option>
-                    {institutions.map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.name}
-                      </option>
-                    ))}
-                  </Select>
-                  {institutionsLoading && <p className="ml-1 text-[12px] text-faint">Searching institutions…</p>}
-                  {!institutionsLoading && !institutionsError && institutionSearch.trim() && institutions.length === 0 && (
-                    <p className="ml-1 text-[12px] text-faint">No institutions matched "{institutionSearch.trim()}" — you can still create your account and link one later.</p>
-                  )}
-                  {institutionsError && <p className="ml-1 text-[12px] text-bad">{institutionsError} — you can still create your account and link one later.</p>}
-                </div>
+                <OrgPicker
+                  label="Institution (optional — link later)"
+                  placeholder="Search institutions"
+                  search={institutionSearch}
+                  onSearchChange={setInstitutionSearch}
+                  selectedId={institutionId}
+                  onSelect={setInstitutionId}
+                  results={institutions}
+                  loading={institutionsLoading}
+                  error={institutionsError}
+                  emptyOptionLabel="No institution selected"
+                  notFoundHint={(q) => `No institutions matched "${q}" — you can still create your account and link one later.`}
+                  errorHint="you can still create your account and link one later"
+                />
               </>
             )}
 
             {role === 'institution' && (
-              <>
-                <RecessedField label="Institution Name" icon={User}>
-                  <input type="text" value={institutionName} onChange={(e) => setInstitutionName(e.target.value)} required className="w-full bg-transparent text-sm text-ink outline-none" />
-                </RecessedField>
-                <RecessedField label="Registration Number (optional)" icon={User}>
-                  <input type="text" value={institutionRegistrationNumber} onChange={(e) => setInstitutionRegistrationNumber(e.target.value)} className="w-full bg-transparent text-sm text-ink outline-none" />
-                </RecessedField>
-              </>
+              <OrgPicker
+                label="Institution"
+                placeholder="Search institutions"
+                search={institutionSearch}
+                onSearchChange={setInstitutionSearch}
+                selectedId={institutionId}
+                onSelect={setInstitutionId}
+                results={institutions}
+                loading={institutionsLoading}
+                error={institutionsError}
+                emptyOptionLabel="Select your institution…"
+                notFoundHint={(q) => `No institutions matched "${q}". Can't find your institution? Contact an administrator to have it added to the directory.`}
+              />
             )}
 
             {role === 'verifier' && (
-              <>
-                <RecessedField label="Company Name" icon={User}>
-                  <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} required className="w-full bg-transparent text-sm text-ink outline-none" />
-                </RecessedField>
-                <RecessedField label="Industry (optional)" icon={User}>
-                  <input type="text" value={companyIndustry} onChange={(e) => setCompanyIndustry(e.target.value)} className="w-full bg-transparent text-sm text-ink outline-none" />
-                </RecessedField>
-                <RecessedField label="Website (optional)" icon={User}>
-                  <input type="text" value={companyWebsite} onChange={(e) => setCompanyWebsite(e.target.value)} className="w-full bg-transparent text-sm text-ink outline-none" />
-                </RecessedField>
-              </>
+              <OrgPicker
+                label="Company"
+                placeholder="Search companies"
+                search={companySearch}
+                onSearchChange={setCompanySearch}
+                selectedId={companyId}
+                onSelect={setCompanyId}
+                results={companies}
+                loading={companiesLoading}
+                error={companiesError}
+                emptyOptionLabel="Select your company…"
+                notFoundHint={(q) => `No companies matched "${q}". Can't find your company? Contact an administrator to have it added to the directory.`}
+              />
             )}
 
             {error && (
@@ -293,6 +325,67 @@ function RecessedField({ label, icon: Icon, children }: { label: string; icon: t
         <Icon className="h-[18px] w-[18px] shrink-0 text-faint" strokeWidth={2} />
         {children}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Shared canonical-directory selector: debounced server-side search (never a client-side filter
+ * over the full 10,000+ row directory) + a real dropdown of matches + loading/empty/error states.
+ * Used identically for the student's optional institution link, and for institution/verifier
+ * signup's required claim — the only differences are copy and which directory is searched.
+ */
+function OrgPicker<T extends { id: string; name: string }>({
+  label,
+  placeholder,
+  search,
+  onSearchChange,
+  selectedId,
+  onSelect,
+  results,
+  loading,
+  error,
+  emptyOptionLabel,
+  notFoundHint,
+  errorHint,
+}: {
+  label: string
+  placeholder: string
+  search: string
+  onSearchChange: (value: string) => void
+  selectedId: string
+  onSelect: (id: string) => void
+  results: T[]
+  loading: boolean
+  error: string | null
+  emptyOptionLabel: string
+  notFoundHint: (query: string) => string
+  errorHint?: string
+}) {
+  const trimmed = search.trim()
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="ml-1 text-[11px] font-medium uppercase tracking-[0.1em] text-faint">{label}</label>
+      <div className="flex items-center gap-3 rounded-xl border border-line bg-canvas px-4 py-3 shadow-[inset_0_4px_10px_rgba(0,0,0,0.5)]">
+        <Search className="h-[18px] w-[18px] shrink-0 text-faint" strokeWidth={2} />
+        <input
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-faint"
+        />
+      </div>
+      <Select value={selectedId} onChange={(e) => onSelect(e.target.value)} className="mt-1">
+        <option value="">{emptyOptionLabel}</option>
+        {results.map((r) => (
+          <option key={r.id} value={r.id}>
+            {r.name}
+          </option>
+        ))}
+      </Select>
+      {loading && <p className="ml-1 text-[12px] text-faint">Searching…</p>}
+      {!loading && !error && trimmed && results.length === 0 && <p className="ml-1 text-[12px] text-faint">{notFoundHint(trimmed)}</p>}
+      {error && <p className="ml-1 text-[12px] text-bad">{error}{errorHint ? ` — ${errorHint}` : ''}</p>}
     </div>
   )
 }
