@@ -25,6 +25,7 @@
 # ---------------------------------------------------------------------------
 
 import hashlib
+import logging
 import uuid
 from functools import lru_cache
 from pathlib import Path
@@ -32,6 +33,8 @@ from pathlib import Path
 from fastapi import UploadFile
 
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {".pdf"}
 ALLOWED_CONTENT_TYPES = {"application/pdf"}
@@ -153,6 +156,31 @@ def _is_not_found_error(exc: Exception) -> bool:
     return status in ("404", "400") and ("not_found" in code or "notfound" in code or "not found" in message)
 
 
+def _log_storage_error(action: str, exc: Exception, *, object_key: str) -> None:
+    """
+    Logs only structural, non-sensitive diagnostic fields for an unexpected
+    Supabase Storage failure: the exception's type, Supabase's own HTTP
+    status/error code when available, the target bucket, and the object key.
+    Deliberately never logs str(exc) (the raw message could echo back
+    request/URL details), settings.supabase_url, settings.
+    supabase_service_role_key, or any file content — those must never reach
+    application logs.
+    """
+    from storage3.exceptions import StorageApiError
+
+    status = getattr(exc, "status", None) if isinstance(exc, StorageApiError) else None
+    code = getattr(exc, "code", None) if isinstance(exc, StorageApiError) else None
+    logger.warning(
+        "Supabase Storage %s failed: exc_type=%s status=%s code=%s bucket=%s object_key=%s",
+        action,
+        type(exc).__name__,
+        status,
+        code,
+        _bucket_name_for_key(object_key),
+        object_key,
+    )
+
+
 def _download_from_supabase(object_key: str) -> bytes | None:
     """Returns the object's bytes, or None if it genuinely does not exist. Raises StorageUnavailableError for any other failure."""
     try:
@@ -161,6 +189,7 @@ def _download_from_supabase(object_key: str) -> bytes | None:
     except Exception as exc:
         if _is_not_found_error(exc):
             return None
+        _log_storage_error("download", exc, object_key=object_key)
         raise StorageUnavailableError(str(exc)) from exc
 
 
@@ -173,6 +202,7 @@ def _upload_to_supabase(object_key: str, data: bytes, *, content_type: str) -> N
         # so this never actually overwrites a different upload's bytes in practice.
         bucket.upload(object_key, data, {"content-type": content_type, "upsert": "true"})
     except Exception as exc:
+        _log_storage_error("upload", exc, object_key=object_key)
         raise StorageUnavailableError(str(exc)) from exc
 
 
