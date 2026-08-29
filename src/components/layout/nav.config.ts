@@ -12,6 +12,7 @@ import {
   ClipboardList,
   ShieldQuestion,
   FileStack,
+  ShieldCheck,
 } from 'lucide-react'
 import type { Role } from '../../types'
 import type { LucideIcon } from 'lucide-react'
@@ -61,6 +62,10 @@ export const NAV_CONFIG: Record<Role, { primary: NavItem[]; secondary: NavItem[]
       { to: '/verifier/requests', label: 'Requests', icon: Inbox },
       { to: '/verifier/activity', label: 'Activity', icon: Activity },
     ],
+    secondary: [],
+  },
+  admin: {
+    primary: [{ to: '/admin', label: 'Verification', icon: ShieldCheck }],
     secondary: [],
   },
 }

@@ -14,8 +14,11 @@ const ROLE_HOME: Record<Role, string> = {
   student: '/student',
   institution: '/institution',
   verifier: '/verifier',
+  admin: '/admin',
 }
 
+// No 'admin' tab here — there is no public admin sign-up path (see backend
+// auth_service.register_user, which rejects role=admin regardless of what any client sends).
 const ROLE_TABS: { role: Role; label: string }[] = [
   { role: 'student', label: 'Student' },
   { role: 'institution', label: 'Institution' },
@@ -26,6 +29,9 @@ const WORLD_COPY: Record<Role, { headline: string; sub: string }> = {
   student: { headline: 'Your academic identity belongs to you.', sub: 'Every credential you receive lands directly in your own wallet — you decide what gets shared, with whom, and for how long.' },
   institution: { headline: 'Issue credentials people can trust.', sub: 'Sign transcripts, degrees, and certificates with your institution’s own key — every issuance is auditable and tamper-evident.' },
   verifier: { headline: 'Verify talent with confidence.', sub: 'Check a candidate’s real, signed academic record in seconds — no phone calls, no waiting on a registrar.' },
+  // Unreachable — role is always one of ROLE_TABS above — but Record<Role, ...> requires every
+  // key for type-safety. Never rendered.
+  admin: { headline: '', sub: '' },
 }
 
 /**

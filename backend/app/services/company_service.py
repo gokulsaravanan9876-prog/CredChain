@@ -67,6 +67,7 @@ def to_response(db: Session, company: Company) -> CompanyProfileResponse:
         logo_url=company.logo_url,
         source=company.source,
         is_registered=company.user_id is not None,
+        verification_status=company.verification_status.value if company.user_id is not None else None,
         open_positions_count=_open_job_count(db, company.id),
     )
 

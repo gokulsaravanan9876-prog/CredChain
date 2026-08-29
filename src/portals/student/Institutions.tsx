@@ -110,9 +110,14 @@ export function Institutions() {
                     <GraduationCap className="h-5 w-5" strokeWidth={1.8} />
                   </div>
                   <div className="flex flex-wrap justify-end gap-1.5">
-                    {inst.is_registered && (
+                    {inst.is_registered && inst.verification_status === 'verified' && (
                       <Badge tone="good" size="sm">
-                        <ShieldCheck className="h-3 w-3" strokeWidth={2.5} /> Registered
+                        <ShieldCheck className="h-3 w-3" strokeWidth={2.5} /> Verified
+                      </Badge>
+                    )}
+                    {inst.is_registered && inst.verification_status !== 'verified' && (
+                      <Badge tone="neutral" size="sm" withIcon={false}>
+                        Registered
                       </Badge>
                     )}
                     {inst.institution_type && (

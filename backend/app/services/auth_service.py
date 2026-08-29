@@ -35,6 +35,10 @@ class InactiveAccountError(Exception):
     pass
 
 
+class AdminSelfRegistrationError(Exception):
+    """Raised if a registration payload requests role=admin — there is no public admin sign-up path (see backend/scripts/create_admin.py for the only supported provisioning route)."""
+
+
 def get_user_by_email(db: Session, email: str) -> User | None:
     return db.query(User).filter(User.email == email.lower()).first()
 
@@ -44,17 +48,19 @@ def register_user(db: Session, payload: RegisterRequest) -> User:
     Creates the User row plus the matching role-specific profile row in one
     transaction (all-or-nothing — a failure partway through rolls back both).
 
-    HACKATHON SIMPLIFICATION: institution and verifier(company) registration
-    is open to anyone who calls this endpoint, same as student registration.
-    A production deployment should NOT let an arbitrary caller self-register
-    as an institution or company — that identity is exactly what verifiers
-    are trusting. The natural extension point for that is here: set
-    `is_active=False` for those two roles at creation time and add an
-    admin-approval step (e.g. a `POST /api/institutions/{id}/approve`
-    endpoint restricted to an admin role) before flipping it to True. Left
-    as `is_active=True` for all roles in this phase to keep the hackathon
-    demo flow (register -> immediately usable) working end to end.
+    Institution and verifier(company) registration is open to anyone who
+    calls this endpoint (same as student registration) and the account is
+    immediately usable for login/browsing — but NOT for the two actions that
+    require real trust: a new Institution/Company row is created with
+    verification_status=PENDING (the model's default), and
+    credential_service.issue_signed_credential / job_service.publish_job
+    both refuse to act until an admin has approved the account (see
+    services/admin_service.py, routes/admin.py). role=admin can never reach
+    this function — see the AdminSelfRegistrationError check above; admin
+    accounts are provisioned only via backend/scripts/create_admin.py.
     """
+    if payload.role == UserRole.ADMIN:
+        raise AdminSelfRegistrationError()
     if get_user_by_email(db, payload.email):
         raise EmailAlreadyRegisteredError()
 

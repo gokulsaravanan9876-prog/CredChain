@@ -87,6 +87,7 @@ def to_response(institution: Institution) -> InstitutionSummaryResponse:
         logo_url=institution.logo_url,
         source=institution.source,
         is_registered=institution.user_id is not None,
+        verification_status=institution.verification_status.value if institution.user_id is not None else None,
     )
 
 

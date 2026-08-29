@@ -3,12 +3,15 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text
+from datetime import datetime
+
+from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
 from .common import TimestampMixin, UUIDPrimaryKeyMixin
+from .enums import VerificationStatus
 
 if TYPE_CHECKING:
     from .credential_request import CredentialRequest
@@ -54,7 +57,22 @@ class Company(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     source_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    user: Mapped[User | None] = relationship(back_populates="company")
+    # --- Phase A: trust/verification (registered accounts only — see VerificationStatus) ---
+    # Same rationale as Institution's identical fields — a directory-only row (user_id IS NULL)
+    # carries the 'pending' default too, but it's never surfaced or meaningful for one.
+    verification_status: Mapped[VerificationStatus] = mapped_column(
+        SAEnum(VerificationStatus, values_callable=lambda e: [m.value for m in e], name="verification_status"),
+        nullable=False,
+        default=VerificationStatus.PENDING,
+        index=True,
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    user: Mapped[User | None] = relationship(back_populates="company", foreign_keys=[user_id])
     credential_requests: Mapped[list[CredentialRequest]] = relationship(back_populates="company")
     share_grants: Mapped[list[ShareGrant]] = relationship(back_populates="company")
     verification_events: Mapped[list[VerificationEvent]] = relationship(back_populates="company")

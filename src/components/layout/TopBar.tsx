@@ -8,6 +8,7 @@ const ROLE_LABEL: Record<Role, string> = {
   student: 'Student',
   institution: 'Institution',
   verifier: 'Company',
+  admin: 'Admin',
 }
 
 export function TopBar({ user, onMenuClick }: { user: User; onMenuClick?: () => void }) {

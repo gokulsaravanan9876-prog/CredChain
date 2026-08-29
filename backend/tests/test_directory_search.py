@@ -295,12 +295,12 @@ def test_job_company_id_search_and_degree_filters(client, db_session):
 
     by_company = client.get("/api/jobs", params={"company_id": verifier_a["company_id"]}, headers=_auth_header(student["token"]))
     assert by_company.status_code == 200
-    titles = [j["title"] for j in by_company.json()]
+    titles = [j["title"] for j in by_company.json()["items"]]
     assert "Backend Engineer" in titles
     assert "Mechanical Design Engineer" not in titles
 
     by_search = client.get("/api/jobs", params={"search": "Backend"}, headers=_auth_header(student["token"]))
-    titles = [j["title"] for j in by_search.json()]
+    titles = [j["title"] for j in by_search.json()["items"]]
     assert "Backend Engineer" in titles
     assert "Mechanical Design Engineer" not in titles
 
@@ -308,11 +308,11 @@ def test_job_company_id_search_and_degree_filters(client, db_session):
     # pre-existing) — the backend `search` filter has to match that behavior now that Jobs.tsx
     # routes its search box through this endpoint instead of filtering an already-fetched array.
     by_company_name = client.get("/api/jobs", params={"search": "Job Filter Co B"}, headers=_auth_header(student["token"]))
-    titles = [j["title"] for j in by_company_name.json()]
+    titles = [j["title"] for j in by_company_name.json()["items"]]
     assert "Mechanical Design Engineer" in titles
     assert "Backend Engineer" not in titles
 
     by_degree = client.get("/api/jobs", params={"degree": "Mechanical"}, headers=_auth_header(student["token"]))
-    titles = [j["title"] for j in by_degree.json()]
+    titles = [j["title"] for j in by_degree.json()["items"]]
     assert "Mechanical Design Engineer" in titles
     assert "Backend Engineer" not in titles

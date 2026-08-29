@@ -30,6 +30,10 @@ class CompanyProfileResponse(BaseModel):
     logo_url: str | None = None
     source: str | None = None
     is_registered: bool = False
+    # Phase A: the REGISTERED account's trust state ("pending"|"verified"|"rejected"), only ever
+    # non-null when is_registered is True — see InstitutionSummaryResponse's identical field for
+    # the full rationale.
+    verification_status: str | None = None
     # Not an ORM column — computed per-request (see company_service.to_response)
     # as a real count of this company's OPEN jobs, so the directory card/profile
     # can show it without the frontend fetching every job for every company.

@@ -69,6 +69,16 @@ class UserResponse(BaseModel):
     student_institution_id: uuid.UUID | None = None
     student_institution_name: str | None = None
 
+    # Phase A: trust status of the account's OWN institution/company profile (None for every
+    # other role, or for a role that has no profile row for some other reason). Lets the
+    # institution/company portal show its own pending/verified/rejected state without a
+    # dedicated endpoint. Never populated for student_institution_* above (a different concept —
+    # the institution a STUDENT is affiliated with, not the caller's own institution).
+    institution_verification_status: str | None = None
+    institution_rejection_reason: str | None = None
+    company_verification_status: str | None = None
+    company_rejection_reason: str | None = None
+
     model_config = {"from_attributes": True}
 
 

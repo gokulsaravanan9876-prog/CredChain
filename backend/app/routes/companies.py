@@ -110,6 +110,13 @@ def publish_job(job_id: uuid.UUID, current_user: User = Depends(require_verifier
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This job does not belong to your company")
     except job_service.JobNotEditableError:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only a draft job can be published")
+    except job_service.CompanyNotVerifiedError as exc:
+        detail = (
+            "Your company's verification was rejected. Jobs cannot be published."
+            if exc.status.value == "rejected"
+            else "Your company account is pending verification. Jobs cannot be published until an administrator approves it."
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
     return job_service.to_response(job)
 
 

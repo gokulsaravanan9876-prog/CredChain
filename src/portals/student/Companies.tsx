@@ -112,9 +112,14 @@ export function Companies() {
               <GlassPanel key={c.id} className="flex flex-col gap-3 p-5">
                 <div className="flex items-start justify-between gap-3">
                   <InitialsAvatar initials={initialsOf(c.name)} tone="ink" />
-                  {c.is_registered && (
+                  {c.is_registered && c.verification_status === 'verified' && (
                     <Badge tone="good" size="sm">
-                      <ShieldCheck className="h-3 w-3" strokeWidth={2.5} /> Registered
+                      <ShieldCheck className="h-3 w-3" strokeWidth={2.5} /> Verified
+                    </Badge>
+                  )}
+                  {c.is_registered && c.verification_status !== 'verified' && (
+                    <Badge tone="neutral" size="sm" withIcon={false}>
+                      Registered
                     </Badge>
                   )}
                 </div>

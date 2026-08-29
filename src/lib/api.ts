@@ -39,6 +39,8 @@ import type {
   CompanyJobApplication,
   JobAIAnalysisResult,
   Page,
+  PendingInstitution,
+  PendingCompany,
 } from '../types'
 import {
   credentials,
@@ -717,14 +719,44 @@ export async function getMyJobs(): Promise<Job[]> {
   return apiClient.get<Job[]>('/companies/me/jobs')
 }
 
+/**
+ * Public — real open jobs, unwrapped to a plain array. Used by CompanyDetail's "jobs at this
+ * company" list and the student Dashboard's job preview — both predate pagination and just want
+ * "the list" (see getOpenJobsPage for the real paginated Jobs directory query the student Jobs
+ * page uses). GET /api/jobs is paginated server-side (Phase A) exactly like institutions/
+ * companies already are; this wrapper absorbs that the same way getInstitutions() does.
+ */
 export async function getOpenJobs(filters?: { search?: string; companyId?: string; location?: string; degree?: string }): Promise<Job[]> {
-  const qs = toQueryString({
-    search: filters?.search,
-    company_id: filters?.companyId,
-    location: filters?.location,
-    degree: filters?.degree,
-  })
-  return apiClient.get<Job[]>(`/jobs${qs}`)
+  const page = await apiClient.get<Page<Job>>(
+    `/jobs${toQueryString({
+      search: filters?.search,
+      company_id: filters?.companyId,
+      location: filters?.location,
+      degree: filters?.degree,
+      page_size: LEGACY_FULL_LIST_PAGE_SIZE,
+    })}`
+  )
+  return page.items
+}
+
+export async function getOpenJobsPage(params?: {
+  search?: string
+  companyId?: string
+  location?: string
+  degree?: string
+  page?: number
+  pageSize?: number
+}): Promise<Page<Job>> {
+  return apiClient.get<Page<Job>>(
+    `/jobs${toQueryString({
+      search: params?.search,
+      company_id: params?.companyId,
+      location: params?.location,
+      degree: params?.degree,
+      page: params?.page,
+      page_size: params?.pageSize,
+    })}`
+  )
 }
 
 export async function getJob(jobId: string): Promise<Job> {
@@ -758,4 +790,33 @@ export async function updateApplicationStatus(applicationId: string, newStatus: 
 /** Student withdraws their own application — only allowed from a non-final state (not ACCEPTED/REJECTED/already-WITHDRAWN). */
 export async function withdrawApplication(applicationId: string): Promise<StudentJobApplication> {
   return apiClient.post<StudentJobApplication>(`/students/me/applications/${applicationId}/withdraw`)
+}
+
+// ---- Admin: institution/company verification (Phase A) ----------------------------------
+// Every one of these requires role=admin server-side (require_admin) — nothing here is a
+// security boundary, it's just the typed client for endpoints only an admin token can succeed
+// against. See backend/app/routes/admin.py.
+
+export async function getPendingInstitutions(): Promise<PendingInstitution[]> {
+  return apiClient.get<PendingInstitution[]>('/admin/institutions/pending')
+}
+
+export async function approveInstitutionVerification(institutionId: string): Promise<PendingInstitution> {
+  return apiClient.post<PendingInstitution>(`/admin/institutions/${institutionId}/approve`)
+}
+
+export async function rejectInstitutionVerification(institutionId: string, reason: string): Promise<PendingInstitution> {
+  return apiClient.post<PendingInstitution>(`/admin/institutions/${institutionId}/reject`, { reason })
+}
+
+export async function getPendingCompanies(): Promise<PendingCompany[]> {
+  return apiClient.get<PendingCompany[]>('/admin/companies/pending')
+}
+
+export async function approveCompanyVerification(companyId: string): Promise<PendingCompany> {
+  return apiClient.post<PendingCompany>(`/admin/companies/${companyId}/approve`)
+}
+
+export async function rejectCompanyVerification(companyId: string, reason: string): Promise<PendingCompany> {
+  return apiClient.post<PendingCompany>(`/admin/companies/${companyId}/reject`, { reason })
 }

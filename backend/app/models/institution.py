@@ -3,12 +3,15 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text
+from datetime import datetime
+
+from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
 from .common import TimestampMixin, UUIDPrimaryKeyMixin
+from .enums import VerificationStatus
 
 if TYPE_CHECKING:
     from .credential import Credential
@@ -61,7 +64,26 @@ class Institution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     source_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    user: Mapped[User | None] = relationship(back_populates="institution")
+    # --- Phase A: trust/verification (registered accounts only — see VerificationStatus) ---
+    # A directory-only row (user_id IS NULL) carries the 'pending' default too, but it's never
+    # surfaced or meaningful for one — there's no User to gate. See migration
+    # h1i2j3k4l5m6_admin_role_and_verification.py for how existing REGISTERED rows were
+    # grandfathered to 'verified' at migration time.
+    verification_status: Mapped[VerificationStatus] = mapped_column(
+        SAEnum(VerificationStatus, values_callable=lambda e: [m.value for m in e], name="verification_status"),
+        nullable=False,
+        default=VerificationStatus.PENDING,
+        index=True,
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The admin user who approved/rejected this institution — SET NULL (not CASCADE): losing the
+    # admin account must never retroactively erase which institutions were already verified.
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    user: Mapped[User | None] = relationship(back_populates="institution", foreign_keys=[user_id])
     students: Mapped[list[Student]] = relationship(back_populates="institution")
     credentials: Mapped[list[Credential]] = relationship(back_populates="institution")
     institution_certificate_requests: Mapped[list[InstitutionCertificateRequest]] = relationship(back_populates="institution")

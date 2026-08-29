@@ -8,7 +8,7 @@
 // any of the UI code that consumes it.
 // ---------------------------------------------------------------------------
 
-export type Role = 'student' | 'institution' | 'verifier'
+export type Role = 'student' | 'institution' | 'verifier' | 'admin'
 
 // ---------------------------------------------------------------------------
 // Auth (real backend, Phase 3) — mirrors backend/app/schemas/auth.py exactly.
@@ -27,6 +27,11 @@ export interface AuthUser {
   /** Only meaningful for students: the institution they're affiliated with (distinct from institution_id above). */
   student_institution_id: string | null
   student_institution_name: string | null
+  /** Phase A — trust status of the account's OWN institution/company profile (null for every other role, or a role with no such profile). */
+  institution_verification_status: 'pending' | 'verified' | 'rejected' | null
+  institution_rejection_reason: string | null
+  company_verification_status: 'pending' | 'verified' | 'rejected' | null
+  company_rejection_reason: string | null
 }
 
 /**
@@ -51,6 +56,8 @@ export interface InstitutionSummary {
   source: string | null
   /** true only when this institution has a real CredChain login (user_id set) — see backend/app/services/institution_service.py. A directory listing (false) is discoverable but was never claimed to be a CredChain partner/account. */
   is_registered: boolean
+  /** Trust status of the REGISTERED account ('pending'|'verified'|'rejected') — always null when is_registered is false (a directory listing has no account to verify). */
+  verification_status: 'pending' | 'verified' | 'rejected' | null
 }
 
 /** Generic pagination envelope — mirrors backend/app/schemas/pagination.py's Page[T] exactly. */
@@ -469,8 +476,35 @@ export interface Company {
   source: string | null
   /** true only when this company has a real CredChain login (user_id set) and can therefore post jobs. A directory listing (false) is discoverable but is not a registered CredChain employer. */
   is_registered: boolean
+  /** Trust status of the REGISTERED account ('pending'|'verified'|'rejected') — always null when is_registered is false. Only a 'verified' company can publish a job. */
+  verification_status: 'pending' | 'verified' | 'rejected' | null
   /** Real count of this company's currently-OPEN jobs, computed server-side. */
   open_positions_count: number
+}
+
+/** Admin (Phase A) — a registered institution/company account awaiting verification review. */
+export interface PendingInstitution {
+  id: string
+  name: string
+  location: string | null
+  website: string | null
+  registration_number: string | null
+  verification_status: 'pending' | 'verified' | 'rejected'
+  created_at: string
+  contact_email: string | null
+  contact_full_name: string | null
+}
+
+export interface PendingCompany {
+  id: string
+  name: string
+  location: string | null
+  website: string | null
+  industry: string | null
+  verification_status: 'pending' | 'verified' | 'rejected'
+  created_at: string
+  contact_email: string | null
+  contact_full_name: string | null
 }
 
 export interface UpdateCompanyProfileInput {

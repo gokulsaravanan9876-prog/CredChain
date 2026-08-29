@@ -54,10 +54,14 @@ import { Profile as CompanyProfile } from './portals/verifier/Profile'
 import { Jobs as CompanyJobs } from './portals/verifier/Jobs'
 import { Applications as CompanyApplications } from './portals/verifier/Applications'
 
+// Admin
+import { AdminDashboard } from './portals/admin/Dashboard'
+
 const ROLE_HOME: Record<Role, string> = {
   student: '/student',
   institution: '/institution',
   verifier: '/verifier',
+  admin: '/admin',
 }
 
 /** Maps the backend's AuthUser (types.ts) onto the frontend's display User shape (types.ts) that AppShell/Sidebar/TopBar already expect. */
@@ -97,6 +101,14 @@ function InstitutionLayout() {
   )
 }
 function VerifierLayout() {
+  const { user } = useAuth()
+  return (
+    <AppShell user={toDisplayUser(user!)}>
+      <Outlet />
+    </AppShell>
+  )
+}
+function AdminLayout() {
   const { user } = useAuth()
   return (
     <AppShell user={toDisplayUser(user!)}>
@@ -178,6 +190,12 @@ function AppRoutes() {
           <Route path="requests/new" element={<RequestCredentials />} />
           <Route path="verify/:credentialId" element={<VerificationResult />} />
           <Route path="activity" element={<VerifierActivity />} />
+        </Route>
+      </Route>
+
+      <Route element={<ProtectedRoute role="admin" />}>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<AdminDashboard />} />
         </Route>
       </Route>
 

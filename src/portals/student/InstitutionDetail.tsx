@@ -52,9 +52,13 @@ export function InstitutionDetail() {
             <p className="text-[11px] font-bold uppercase tracking-wider text-primary">Institution Directory</p>
             <h1 className="text-2xl font-bold tracking-tight text-ink font-[family-name:var(--font-display)]">{institution.name}</h1>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
-              {institution.is_registered ? (
+              {institution.is_registered && institution.verification_status === 'verified' ? (
                 <Badge tone="good" size="sm">
-                  <ShieldCheck className="h-3 w-3" strokeWidth={2.5} /> Registered CredChain Institution
+                  <ShieldCheck className="h-3 w-3" strokeWidth={2.5} /> Verified CredChain Institution
+                </Badge>
+              ) : institution.is_registered ? (
+                <Badge tone="neutral" size="sm" withIcon={false}>
+                  Registered — Not Yet Verified
                 </Badge>
               ) : (
                 <Badge tone="neutral" size="sm" withIcon={false}>

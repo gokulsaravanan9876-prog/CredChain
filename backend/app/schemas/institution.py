@@ -23,6 +23,13 @@ class InstitutionSummaryResponse(BaseModel):
     institution (user_id is set) — computed fresh from the ORM row every
     time (see institution_service.to_response), never a stored claim that
     could drift from the truth.
+
+    verification_status (Phase A) is the REGISTERED account's trust state —
+    "pending" | "verified" | "rejected" — and is only ever non-null when
+    is_registered is True. A directory-only listing has no account to
+    verify, so this stays None rather than exposing the column's internal
+    'pending' default, which would misleadingly imply it's an account
+    awaiting review.
     """
 
     id: uuid.UUID
@@ -37,5 +44,6 @@ class InstitutionSummaryResponse(BaseModel):
     logo_url: str | None = None
     source: str | None = None
     is_registered: bool = False
+    verification_status: str | None = None
 
     model_config = {"from_attributes": True}

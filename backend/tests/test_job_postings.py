@@ -106,10 +106,11 @@ def test_student_only_sees_open_jobs_never_draft_or_default_company(client, db_s
 
     list_resp = client.get("/api/jobs", headers=_auth_header(student["token"]))
     assert list_resp.status_code == 200
-    titles = [j["title"] for j in list_resp.json()]
+    page = list_resp.json()
+    titles = [j["title"] for j in page["items"]]
     assert "Open Job" in titles
     assert "Draft Job" not in titles
-    for j in list_resp.json():
+    for j in page["items"]:
         assert j["company_name"] != "ABC Technologies"
 
     detail_resp = client.get(f"/api/jobs/{draft_job['id']}", headers=_auth_header(student["token"]))
@@ -121,7 +122,9 @@ def test_no_jobs_is_an_honest_empty_list(client, db_session):
     student = _register_student(client, inst["institution_id"], "job-stu-empty@test.credchain.dev", "JOB-STU-EMPTY")
     resp = client.get("/api/jobs", headers=_auth_header(student["token"]))
     assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    page = resp.json()
+    assert page["items"] == []
+    assert page["total"] == 0
 
 
 def test_eligibility_deterministic_mandatory_gate(client, db_session):

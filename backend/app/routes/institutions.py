@@ -21,6 +21,7 @@ from ..security.permissions import require_institution
 from ..services import credential_service, institution_request_service, institution_service, student_document_service
 from ..services.credential_service import (
     CredentialValidationError,
+    InstitutionNotVerifiedError,
     StudentNotAffiliatedError,
     StudentNotFoundError,
     to_credential_response,
@@ -73,6 +74,14 @@ def _institution_of(current_user: User) -> Institution:
     if current_user.institution is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No institution profile for this account")
     return current_user.institution
+
+
+def _verification_error(exc: InstitutionNotVerifiedError) -> HTTPException:
+    if exc.status.value == "rejected":
+        detail = "Your institution's verification was rejected. Credentials cannot be issued."
+    else:
+        detail = "Your institution account is pending verification. Credentials cannot be issued until an administrator approves it."
+    return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
 @router.get("/me/students", response_model=list[StudentSummaryResponse], summary="List students affiliated with the authenticated institution")
@@ -201,6 +210,8 @@ async def issue_credential(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="This student is not affiliated with your institution"
         )
+    except InstitutionNotVerifiedError as exc:
+        raise _verification_error(exc)
     except CredentialValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except EmptyDocumentError as exc:
@@ -258,6 +269,8 @@ async def bulk_issue_credential(
             cgpa=cgpa,
             documents=documents,
         )
+    except InstitutionNotVerifiedError as exc:
+        raise _verification_error(exc)
     except CredentialValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -410,6 +423,8 @@ def approve_student_document(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This document has already been reviewed")
     except student_document_service.DocumentFileMissingError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uploaded file is missing on this server")
+    except InstitutionNotVerifiedError as exc:
+        raise _verification_error(exc)
     except CredentialValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return student_document_service.to_response(document)
