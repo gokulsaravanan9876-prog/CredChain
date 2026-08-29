@@ -19,6 +19,7 @@ from ..models.enums import VerificationStatus
 from ..models.institution import Institution
 from ..models.user import User
 from ..schemas.admin import PendingCompanyResponse, PendingInstitutionResponse
+from ..schemas.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 
 class InstitutionNotFoundError(Exception):
@@ -44,13 +45,27 @@ def _log(db: Session, *, actor: User, action: str, entity_type: str, entity_id: 
 # --- Institutions -----------------------------------------------------------
 
 
-def list_pending_institutions(db: Session) -> list[Institution]:
-    return (
-        db.query(Institution)
-        .filter(Institution.user_id.isnot(None), Institution.verification_status == VerificationStatus.PENDING)
-        .order_by(Institution.created_at)
-        .all()
+def list_pending_institutions(
+    db: Session, *, search: str | None = None, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE
+) -> tuple[list[Institution], int]:
+    """
+    Registered (user_id IS NOT NULL) institutions awaiting review — paginated and
+    optionally name-searched, same pattern as every other directory listing in
+    this app (see institution_service.list_institutions). Returns
+    (page_of_rows, total_matching_count), never the whole pending table.
+    """
+    page = max(1, page)
+    page_size = max(1, min(page_size, MAX_PAGE_SIZE))
+
+    query = db.query(Institution).filter(
+        Institution.user_id.isnot(None), Institution.verification_status == VerificationStatus.PENDING
     )
+    if search:
+        query = query.filter(Institution.name.ilike(f"%{search.strip()}%"))
+
+    total = query.count()
+    rows = query.order_by(Institution.created_at).offset((page - 1) * page_size).limit(page_size).all()
+    return rows, total
 
 
 def _get_registered_institution(db: Session, institution_id: uuid.UUID) -> Institution:
@@ -110,13 +125,22 @@ def to_pending_institution_response(institution: Institution) -> PendingInstitut
 # --- Companies ---------------------------------------------------------------
 
 
-def list_pending_companies(db: Session) -> list[Company]:
-    return (
-        db.query(Company)
-        .filter(Company.user_id.isnot(None), Company.verification_status == VerificationStatus.PENDING)
-        .order_by(Company.created_at)
-        .all()
+def list_pending_companies(
+    db: Session, *, search: str | None = None, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE
+) -> tuple[list[Company], int]:
+    """Same contract as list_pending_institutions, for registered companies awaiting review."""
+    page = max(1, page)
+    page_size = max(1, min(page_size, MAX_PAGE_SIZE))
+
+    query = db.query(Company).filter(
+        Company.user_id.isnot(None), Company.verification_status == VerificationStatus.PENDING
     )
+    if search:
+        query = query.filter(Company.name.ilike(f"%{search.strip()}%"))
+
+    total = query.count()
+    rows = query.order_by(Company.created_at).offset((page - 1) * page_size).limit(page_size).all()
+    return rows, total
 
 
 def _get_registered_company(db: Session, company_id: uuid.UUID) -> Company:

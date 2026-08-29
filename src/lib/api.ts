@@ -816,8 +816,10 @@ export async function withdrawApplication(applicationId: string): Promise<Studen
 // security boundary, it's just the typed client for endpoints only an admin token can succeed
 // against. See backend/app/routes/admin.py.
 
-export async function getPendingInstitutions(): Promise<PendingInstitution[]> {
-  return apiClient.get<PendingInstitution[]>('/admin/institutions/pending')
+export async function getPendingInstitutions(params?: { search?: string; page?: number; pageSize?: number }): Promise<Page<PendingInstitution>> {
+  return apiClient.get<Page<PendingInstitution>>(
+    `/admin/institutions/pending${toQueryString({ search: params?.search, page: params?.page, page_size: params?.pageSize })}`
+  )
 }
 
 export async function approveInstitutionVerification(institutionId: string): Promise<PendingInstitution> {
@@ -828,8 +830,10 @@ export async function rejectInstitutionVerification(institutionId: string, reaso
   return apiClient.post<PendingInstitution>(`/admin/institutions/${institutionId}/reject`, { reason })
 }
 
-export async function getPendingCompanies(): Promise<PendingCompany[]> {
-  return apiClient.get<PendingCompany[]>('/admin/companies/pending')
+export async function getPendingCompanies(params?: { search?: string; page?: number; pageSize?: number }): Promise<Page<PendingCompany>> {
+  return apiClient.get<Page<PendingCompany>>(
+    `/admin/companies/pending${toQueryString({ search: params?.search, page: params?.page, page_size: params?.pageSize })}`
+  )
 }
 
 export async function approveCompanyVerification(companyId: string): Promise<PendingCompany> {

@@ -7,12 +7,13 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models.user import User
 from ..schemas.admin import PendingCompanyResponse, PendingInstitutionResponse, RejectVerificationBody
+from ..schemas.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, Page
 from ..security.permissions import require_admin
 from ..services import admin_service
 
@@ -21,14 +22,20 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 @router.get(
     "/institutions/pending",
-    response_model=list[PendingInstitutionResponse],
-    summary="List registered institution accounts awaiting verification",
+    response_model=Page[PendingInstitutionResponse],
+    summary="Paginated, searchable listing of registered institution accounts awaiting verification",
 )
 def list_pending_institutions(
-    current_user: User = Depends(require_admin), db: Session = Depends(get_db)
-) -> list[PendingInstitutionResponse]:
-    institutions = admin_service.list_pending_institutions(db)
-    return [admin_service.to_pending_institution_response(i) for i in institutions]
+    search: str | None = Query(default=None, description="Matches institution name"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> Page[PendingInstitutionResponse]:
+    institutions, total = admin_service.list_pending_institutions(db, search=search, page=page, page_size=page_size)
+    return Page.of(
+        [admin_service.to_pending_institution_response(i) for i in institutions], page=page, page_size=page_size, total=total
+    )
 
 
 @router.post(
@@ -74,14 +81,20 @@ def reject_institution(
 
 @router.get(
     "/companies/pending",
-    response_model=list[PendingCompanyResponse],
-    summary="List registered company accounts awaiting verification",
+    response_model=Page[PendingCompanyResponse],
+    summary="Paginated, searchable listing of registered company accounts awaiting verification",
 )
 def list_pending_companies(
-    current_user: User = Depends(require_admin), db: Session = Depends(get_db)
-) -> list[PendingCompanyResponse]:
-    companies = admin_service.list_pending_companies(db)
-    return [admin_service.to_pending_company_response(c) for c in companies]
+    search: str | None = Query(default=None, description="Matches company name"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> Page[PendingCompanyResponse]:
+    companies, total = admin_service.list_pending_companies(db, search=search, page=page, page_size=page_size)
+    return Page.of(
+        [admin_service.to_pending_company_response(c) for c in companies], page=page, page_size=page_size, total=total
+    )
 
 
 @router.post(

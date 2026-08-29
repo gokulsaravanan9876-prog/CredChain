@@ -143,9 +143,11 @@ def test_admin_can_list_approve_and_reject_institutions(client, db_session):
 
     listing = client.get("/api/admin/institutions/pending", headers=_auth_header(admin_token))
     assert listing.status_code == 200
-    ids = [i["id"] for i in listing.json()]
+    page = listing.json()
+    assert set(page.keys()) == {"items", "page", "page_size", "total", "total_pages"}
+    ids = [i["id"] for i in page["items"]]
     assert pending_inst["institution_id"] in ids
-    row = next(i for i in listing.json() if i["id"] == pending_inst["institution_id"])
+    row = next(i for i in page["items"] if i["id"] == pending_inst["institution_id"])
     assert row["contact_email"] == "pending-inst@test.credchain.dev"
 
     approve = client.post(f"/api/admin/institutions/{pending_inst['institution_id']}/approve", headers=_auth_header(admin_token))
@@ -186,6 +188,111 @@ def test_admin_cannot_verify_a_directory_only_institution(client, db_session):
     assert resp.status_code == 409
 
 
+# --- Admin pending queues: pagination, search, and scope ---------------------
+
+
+def test_admin_pending_institutions_pagination(client, db_session):
+    admin_token = _admin_token(client, db_session)
+    for i in range(3):
+        inst = _register_institution(client, db_session, f"page-inst-{i}@test.credchain.dev", f"Page University {i}")
+        _set_institution_status(db_session, inst["institution_id"], "pending")
+
+    page1 = client.get("/api/admin/institutions/pending", params={"page": 1, "page_size": 2}, headers=_auth_header(admin_token))
+    assert page1.status_code == 200
+    body1 = page1.json()
+    assert body1["total"] == 3
+    assert body1["total_pages"] == 2
+    assert len(body1["items"]) == 2
+
+    page2 = client.get("/api/admin/institutions/pending", params={"page": 2, "page_size": 2}, headers=_auth_header(admin_token))
+    body2 = page2.json()
+    assert len(body2["items"]) == 1
+    assert {i["id"] for i in body1["items"]}.isdisjoint({i["id"] for i in body2["items"]})
+
+
+def test_admin_pending_institutions_search_by_name(client, db_session):
+    admin_token = _admin_token(client, db_session)
+    matching = _register_institution(client, db_session, "search-match-inst@test.credchain.dev", "Zeta Search University")
+    _set_institution_status(db_session, matching["institution_id"], "pending")
+    other = _register_institution(client, db_session, "search-other-inst@test.credchain.dev", "Omega Institute")
+    _set_institution_status(db_session, other["institution_id"], "pending")
+
+    resp = client.get("/api/admin/institutions/pending", params={"search": "zeta"}, headers=_auth_header(admin_token))
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == matching["institution_id"]
+
+
+def test_admin_pending_institutions_page_size_over_max_is_rejected(client, db_session):
+    admin_token = _admin_token(client, db_session)
+    resp = client.get("/api/admin/institutions/pending", params={"page_size": 500}, headers=_auth_header(admin_token))
+    assert resp.status_code == 422
+
+
+def test_admin_pending_institutions_never_include_verified_or_rejected(client, db_session):
+    admin_token = _admin_token(client, db_session)
+    verified = _register_institution(client, db_session, "already-verified-inst@test.credchain.dev", "Already Verified Uni")
+    rejected = _register_institution(client, db_session, "already-rejected-inst@test.credchain.dev", "Already Rejected Uni")
+    _set_institution_status(db_session, rejected["institution_id"], "rejected")
+
+    resp = client.get("/api/admin/institutions/pending", headers=_auth_header(admin_token))
+    ids = [i["id"] for i in resp.json()["items"]]
+    assert verified["institution_id"] not in ids  # auto-verified by the conftest hook, never pending
+    assert rejected["institution_id"] not in ids
+
+
+def test_admin_pending_companies_pagination(client, db_session):
+    admin_token = _admin_token(client, db_session)
+    for i in range(3):
+        co = _register_verifier(client, db_session, f"page-co-{i}@test.credchain.dev", f"Page Co {i}")
+        _set_company_status(db_session, co["company_id"], "pending")
+
+    page1 = client.get("/api/admin/companies/pending", params={"page": 1, "page_size": 2}, headers=_auth_header(admin_token))
+    body1 = page1.json()
+    assert body1["total"] == 3
+    assert body1["total_pages"] == 2
+    assert len(body1["items"]) == 2
+
+    page2 = client.get("/api/admin/companies/pending", params={"page": 2, "page_size": 2}, headers=_auth_header(admin_token))
+    body2 = page2.json()
+    assert len(body2["items"]) == 1
+    assert {c["id"] for c in body1["items"]}.isdisjoint({c["id"] for c in body2["items"]})
+
+
+def test_admin_pending_companies_search_by_name(client, db_session):
+    admin_token = _admin_token(client, db_session)
+    matching = _register_verifier(client, db_session, "search-match-co@test.credchain.dev", "Zeta Search Corp")
+    _set_company_status(db_session, matching["company_id"], "pending")
+    other = _register_verifier(client, db_session, "search-other-co@test.credchain.dev", "Omega Corp")
+    _set_company_status(db_session, other["company_id"], "pending")
+
+    resp = client.get("/api/admin/companies/pending", params={"search": "zeta"}, headers=_auth_header(admin_token))
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == matching["company_id"]
+
+
+def test_admin_pending_companies_never_include_verified_or_rejected(client, db_session):
+    admin_token = _admin_token(client, db_session)
+    verified = _register_verifier(client, db_session, "already-verified-co@test.credchain.dev", "Already Verified Co")
+    rejected = _register_verifier(client, db_session, "already-rejected-co@test.credchain.dev", "Already Rejected Co")
+    _set_company_status(db_session, rejected["company_id"], "rejected")
+
+    resp = client.get("/api/admin/companies/pending", headers=_auth_header(admin_token))
+    ids = [c["id"] for c in resp.json()["items"]]
+    assert verified["company_id"] not in ids
+    assert rejected["company_id"] not in ids
+
+
+def test_admin_pagination_authorization_still_enforced(client, db_session):
+    """The paginated/searchable variants of these endpoints still require require_admin — same boundary, not weakened by this change."""
+    inst = _register_institution(client, db_session, "pag-auth-inst@test.credchain.dev", "Pagination Auth Uni")
+    resp = client.get(
+        "/api/admin/institutions/pending", params={"page": 1, "page_size": 5}, headers=_auth_header(inst["token"])
+    )
+    assert resp.status_code == 403
+
+
 # --- Admin: company verification lifecycle -----------------------------------
 
 
@@ -197,7 +304,7 @@ def test_admin_can_list_approve_and_reject_companies(client, db_session):
 
     listing = client.get("/api/admin/companies/pending", headers=_auth_header(admin_token))
     assert listing.status_code == 200
-    ids = [c["id"] for c in listing.json()]
+    ids = [c["id"] for c in listing.json()["items"]]
     assert pending_co["company_id"] in ids
 
     approve = client.post(f"/api/admin/companies/{pending_co['company_id']}/approve", headers=_auth_header(admin_token))
@@ -322,7 +429,7 @@ def test_directory_only_institution_is_not_a_platform_account(client, db_session
 
     admin_token = _admin_token(client, db_session)
     listing = client.get("/api/admin/institutions/pending", headers=_auth_header(admin_token))
-    assert str(directory_row.id) not in [i["id"] for i in listing.json()]
+    assert str(directory_row.id) not in [i["id"] for i in listing.json()["items"]]
 
 
 # --- Jobs pagination -----------------------------------------------------------

@@ -10,14 +10,19 @@ import {
 } from '../../lib/api'
 import { ApiError } from '../../lib/apiClient'
 import type { PendingInstitution, PendingCompany } from '../../types'
-import { PageHeader, Card, Button, Badge, EmptyState, Modal } from '../../components/ui'
+import { PageHeader, Card, Button, Badge, EmptyState, Modal, SearchInput, Pagination } from '../../components/ui'
 import { SkeletonCard } from '../../components/ui/Skeleton'
 import { Textarea } from '../../components/ui/Input'
+
+const PAGE_SIZE = 12
 
 /**
  * Phase A's entire admin surface: two independent verification queues (institutions,
  * companies), each a real GET /api/admin/.../pending + approve/reject action — nothing else.
  * No analytics, no user management, no support tooling (explicitly out of scope for Phase A).
+ * Both queues are backend-paginated/searched (see admin_service.list_pending_institutions/
+ * list_pending_companies) — never loads the entire pending table into the browser, same pattern
+ * as every other directory listing in the app (Companies.tsx, Institutions.tsx, CredentialInbox.tsx).
  */
 export function AdminDashboard() {
   return (
@@ -35,30 +40,51 @@ export function AdminDashboard() {
 }
 
 function InstitutionQueue() {
-  const [items, setItems] = useState<PendingInstitution[]>([])
+  const [result, setResult] = useState<{ items: PendingInstitution[]; total: number; totalPages: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [reason, setReason] = useState('')
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const [retryToken, setRetryToken] = useState(0)
 
-  function load() {
-    setLoading(true)
-    setError(null)
-    getPendingInstitutions()
-      .then(setItems)
-      .catch((err) => setError(err instanceof ApiError ? err.message : 'Unable to load pending institutions. Please try again.'))
-      .finally(() => setLoading(false))
+  // Search change resets to page 1 — same render-time-reset pattern as Companies.tsx/Institutions.tsx.
+  const [prevQuery, setPrevQuery] = useState(query)
+  if (prevQuery !== query) {
+    setPrevQuery(query)
+    setPage(1)
   }
 
-  useEffect(load, [])
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setLoading(true)
+      setError(null)
+      getPendingInstitutions({ search: query.trim() || undefined, page, pageSize: PAGE_SIZE })
+        .then((data) => {
+          // Approving/rejecting the last item on a page beyond the first would otherwise leave
+          // an empty page with real results still on earlier pages — step back instead.
+          if (data.items.length === 0 && page > 1 && data.total > 0) {
+            setPage((p) => Math.max(1, p - 1))
+            return
+          }
+          setResult({ items: data.items, total: data.total, totalPages: data.total_pages })
+        })
+        .catch((err) => setError(err instanceof ApiError ? err.message : 'Unable to load pending institutions. Please try again.'))
+        .finally(() => setLoading(false))
+    }, 300)
+    return () => clearTimeout(handle)
+  }, [query, page, retryToken])
+
+  const items = result?.items ?? []
 
   async function handleApprove(id: string) {
     setBusyId(id)
     setError(null)
     try {
       await approveInstitutionVerification(id)
-      setItems((prev) => prev.filter((i) => i.id !== id))
+      setRetryToken((t) => t + 1)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not approve this institution.')
     } finally {
@@ -72,9 +98,9 @@ function InstitutionQueue() {
     setError(null)
     try {
       await rejectInstitutionVerification(id, reason.trim())
-      setItems((prev) => prev.filter((i) => i.id !== id))
       setRejectingId(null)
       setReason('')
+      setRetryToken((t) => t + 1)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not reject this institution.')
     } finally {
@@ -84,18 +110,28 @@ function InstitutionQueue() {
 
   return (
     <section>
-      <h2 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-faint">
-        <Landmark className="h-4 w-4" /> Pending Institutions
-        {!loading && !error && <Badge tone="neutral" size="sm" withIcon={false}>{items.length}</Badge>}
-      </h2>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-faint">
+          <Landmark className="h-4 w-4" /> Pending Institutions
+          {result && <Badge tone="neutral" size="sm" withIcon={false}>{result.total}</Badge>}
+        </h2>
+        <SearchInput placeholder="Search by name…" value={query} onChange={(e) => setQuery(e.target.value)} className="max-w-xs" />
+      </div>
 
       {error && <div className="mb-4 max-w-2xl rounded-lg bg-bad-bg px-3.5 py-2.5 text-[13px] text-bad">{error}</div>}
 
-      {loading ? (
+      {loading && !result ? (
         <div className="space-y-3"><SkeletonCard lines={2} /></div>
       ) : items.length === 0 ? (
-        !error && <EmptyState icon={Landmark} title="No pending institutions" description="Every registered institution has already been reviewed." />
+        !error && (
+          <EmptyState
+            icon={Landmark}
+            title="No pending institutions"
+            description={query ? 'No pending institutions match this search.' : 'Every registered institution has already been reviewed.'}
+          />
+        )
       ) : (
+        <>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {items.map((i) => (
             <Card key={i.id} className="p-4">
@@ -125,6 +161,8 @@ function InstitutionQueue() {
             </Card>
           ))}
         </div>
+        {result && <Pagination page={page} totalPages={result.totalPages} total={result.total} onPageChange={setPage} />}
+        </>
       )}
 
       <Modal open={rejectingId !== null} onClose={() => setRejectingId(null)} title="Reject institution" size="sm">
@@ -146,30 +184,48 @@ function InstitutionQueue() {
 }
 
 function CompanyQueue() {
-  const [items, setItems] = useState<PendingCompany[]>([])
+  const [result, setResult] = useState<{ items: PendingCompany[]; total: number; totalPages: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [reason, setReason] = useState('')
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const [retryToken, setRetryToken] = useState(0)
 
-  function load() {
-    setLoading(true)
-    setError(null)
-    getPendingCompanies()
-      .then(setItems)
-      .catch((err) => setError(err instanceof ApiError ? err.message : 'Unable to load pending companies. Please try again.'))
-      .finally(() => setLoading(false))
+  const [prevQuery, setPrevQuery] = useState(query)
+  if (prevQuery !== query) {
+    setPrevQuery(query)
+    setPage(1)
   }
 
-  useEffect(load, [])
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setLoading(true)
+      setError(null)
+      getPendingCompanies({ search: query.trim() || undefined, page, pageSize: PAGE_SIZE })
+        .then((data) => {
+          if (data.items.length === 0 && page > 1 && data.total > 0) {
+            setPage((p) => Math.max(1, p - 1))
+            return
+          }
+          setResult({ items: data.items, total: data.total, totalPages: data.total_pages })
+        })
+        .catch((err) => setError(err instanceof ApiError ? err.message : 'Unable to load pending companies. Please try again.'))
+        .finally(() => setLoading(false))
+    }, 300)
+    return () => clearTimeout(handle)
+  }, [query, page, retryToken])
+
+  const items = result?.items ?? []
 
   async function handleApprove(id: string) {
     setBusyId(id)
     setError(null)
     try {
       await approveCompanyVerification(id)
-      setItems((prev) => prev.filter((c) => c.id !== id))
+      setRetryToken((t) => t + 1)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not approve this company.')
     } finally {
@@ -183,9 +239,9 @@ function CompanyQueue() {
     setError(null)
     try {
       await rejectCompanyVerification(id, reason.trim())
-      setItems((prev) => prev.filter((c) => c.id !== id))
       setRejectingId(null)
       setReason('')
+      setRetryToken((t) => t + 1)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not reject this company.')
     } finally {
@@ -195,18 +251,28 @@ function CompanyQueue() {
 
   return (
     <section>
-      <h2 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-faint">
-        <Building2 className="h-4 w-4" /> Pending Companies
-        {!loading && !error && <Badge tone="neutral" size="sm" withIcon={false}>{items.length}</Badge>}
-      </h2>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-faint">
+          <Building2 className="h-4 w-4" /> Pending Companies
+          {result && <Badge tone="neutral" size="sm" withIcon={false}>{result.total}</Badge>}
+        </h2>
+        <SearchInput placeholder="Search by name…" value={query} onChange={(e) => setQuery(e.target.value)} className="max-w-xs" />
+      </div>
 
       {error && <div className="mb-4 max-w-2xl rounded-lg bg-bad-bg px-3.5 py-2.5 text-[13px] text-bad">{error}</div>}
 
-      {loading ? (
+      {loading && !result ? (
         <div className="space-y-3"><SkeletonCard lines={2} /></div>
       ) : items.length === 0 ? (
-        !error && <EmptyState icon={Building2} title="No pending companies" description="Every registered company has already been reviewed." />
+        !error && (
+          <EmptyState
+            icon={Building2}
+            title="No pending companies"
+            description={query ? 'No pending companies match this search.' : 'Every registered company has already been reviewed.'}
+          />
+        )
       ) : (
+        <>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {items.map((c) => (
             <Card key={c.id} className="p-4">
@@ -236,6 +302,8 @@ function CompanyQueue() {
             </Card>
           ))}
         </div>
+        {result && <Pagination page={page} totalPages={result.totalPages} total={result.total} onPageChange={setPage} />}
+        </>
       )}
 
       <Modal open={rejectingId !== null} onClose={() => setRejectingId(null)} title="Reject company" size="sm">
