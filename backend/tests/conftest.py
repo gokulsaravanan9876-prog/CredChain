@@ -27,6 +27,10 @@ _TEST_KEYS_DIR = tempfile.mkdtemp(prefix="credchain_test_keys_")
 _TEST_STORAGE_DIR = tempfile.mkdtemp(prefix="credchain_test_storage_")
 os.environ["KEYS_PATH"] = _TEST_KEYS_DIR
 os.environ["STORAGE_PATH"] = _TEST_STORAGE_DIR
+# ensure_institution_keypair() now encrypts every new institution's private key for storage in
+# Postgres (see app/security/key_encryption.py) — every test that registers an institution needs
+# a working secret for that, not just the tests that specifically exercise key encryption.
+os.environ["KEY_ENCRYPTION_SECRET"] = "test-only-encryption-secret-never-used-in-production"
 # The test suite must be deterministic regardless of whatever a developer
 # currently has in their local .env (e.g. AI_ENABLED=true with a real key
 # for manual smoke testing) — tests that exercise the fallback path assume

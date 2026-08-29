@@ -18,7 +18,7 @@ from ..schemas.institution_request import InstitutionCertificateRequestResponse,
 from ..schemas.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, Page
 from ..schemas.student_document import ApproveStudentDocumentBody, RejectStudentDocumentBody, StudentDocumentResponse
 from ..security.permissions import require_institution
-from ..services import credential_service, institution_request_service, institution_service, student_document_service
+from ..services import credential_service, institution_request_service, institution_service, signing_service, student_document_service
 from ..services.credential_service import (
     CredentialValidationError,
     InstitutionNotVerifiedError,
@@ -29,6 +29,17 @@ from ..services.credential_service import (
 from ..services.document_service import DocumentTooLargeError, EmptyDocumentError, UnsupportedDocumentTypeError
 
 router = APIRouter(prefix="/api/institutions", tags=["institutions"])
+
+# Honest, generic-on-purpose: never reveals which institution, which storage layer, or any
+# path/key material — just that signing is unavailable and issuance can't proceed right now.
+_SIGNING_KEY_UNAVAILABLE_DETAIL = (
+    "This institution's signing key is currently unavailable on the server. "
+    "Credential issuance is temporarily disabled — please contact CredChain support."
+)
+
+
+def _signing_key_unavailable_error() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_SIGNING_KEY_UNAVAILABLE_DETAIL)
 
 
 @router.get(
@@ -212,6 +223,8 @@ async def issue_credential(
         )
     except InstitutionNotVerifiedError as exc:
         raise _verification_error(exc)
+    except signing_service.InstitutionKeyMissingError:
+        raise _signing_key_unavailable_error()
     except CredentialValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except EmptyDocumentError as exc:
@@ -271,6 +284,8 @@ async def bulk_issue_credential(
         )
     except InstitutionNotVerifiedError as exc:
         raise _verification_error(exc)
+    except signing_service.InstitutionKeyMissingError:
+        raise _signing_key_unavailable_error()
     except CredentialValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -425,6 +440,8 @@ def approve_student_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uploaded file is missing on this server")
     except InstitutionNotVerifiedError as exc:
         raise _verification_error(exc)
+    except signing_service.InstitutionKeyMissingError:
+        raise _signing_key_unavailable_error()
     except CredentialValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return student_document_service.to_response(document)

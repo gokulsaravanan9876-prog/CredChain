@@ -318,6 +318,11 @@ async def bulk_issue_credentials(
                     student_id=student_id, student_name=None, status="failed", error="Student is not affiliated with your institution"
                 )
             )
+        except signing_service.InstitutionKeyMissingError:
+            # Not a per-item problem (unlike a bad PDF or an unaffiliated student) — every
+            # remaining item in this batch would fail identically, and the honest, non-leaky
+            # 503 message belongs at the route level, not stuffed into individual item errors.
+            raise
         except Exception as exc:  # noqa: BLE001 — deliberately broad: one bad item must never abort the batch
             results.append(BulkIssuanceItemResult(student_id=student_id, student_name=None, status="failed", error=str(exc)))
 

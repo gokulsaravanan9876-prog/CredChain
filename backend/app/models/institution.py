@@ -44,6 +44,12 @@ class Institution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     registration_number: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
     public_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The matching private key, ENCRYPTED (see app/security/key_encryption.py) — the plaintext
+    # key never touches this column, only the ciphertext. Deliberately absent from every Pydantic
+    # response schema (see InstitutionSummaryResponse's docstring) — nothing should ever read
+    # this column except signing_service.py. NULL for an institution whose private key still
+    # only lives in the legacy on-disk PEM file (or was never migrated/backfilled yet).
+    encrypted_private_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Public directory fields — all optional, populated either by the seed
     # script (backend/scripts/seed_directory.py) or left blank for a real
     # institution that hasn't filled them in, never fabricated in the UI.

@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     # Base URL used to build share links (e.g. http://localhost:5173/share/verify/<token>).
     frontend_base_url: str = "http://localhost:5173"
 
+    # --- Institution signing-key encryption ---
+    # Master secret for encrypting institution private keys before they're stored in
+    # institutions.encrypted_private_key (see app/security/key_encryption.py). Kept ONLY as an
+    # env var — never in the database, never in source control — so that DB access alone can
+    # never decrypt a private key. No real default; empty means encryption is unavailable and
+    # key_encryption.py raises rather than silently operating with a weak/predictable key.
+    key_encryption_secret: str = ""
+
     # --- AI (Phase 7) ---
     # Disabled by default so the project runs with no key configured — see
     # app/services/ai/ai_service.py for the fallback behavior this enables.
