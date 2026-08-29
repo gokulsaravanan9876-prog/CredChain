@@ -14,6 +14,7 @@
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models.activity_log import ActivityLog
@@ -132,7 +133,19 @@ def apply_to_job(
         credential_request_id=request.id,
     )
     db.add(application)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        # A second concurrent request for the same (job_id, student_id) can pass the
+        # existing duplicate check above and still lose the race to this database-level
+        # constraint — converted to the same friendly error the sequential check raises,
+        # rather than surfacing a raw 500. Any other IntegrityError (unrelated to this
+        # specific constraint) is re-raised unchanged rather than masked.
+        db.rollback()
+        constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+        if constraint == "uq_job_applications_job_id_student_id":
+            raise AlreadyAppliedError() from exc
+        raise
 
     log = ActivityLog(
         actor_user_id=student.user_id,

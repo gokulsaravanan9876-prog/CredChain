@@ -6,6 +6,31 @@
 # actually work" test file.
 # ---------------------------------------------------------------------------
 
+import os
+import threading
+import uuid as uuid_module
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session as RawSession
+
+from app.models.activity_log import ActivityLog
+from app.models.job_application import JobApplication
+from app.models.notification import Notification
+from app.models.student import Student
+from app.services import job_application_service
+
+# Same URL conftest.py's own `engine` uses (see TEST_DATABASE_URL there) — a
+# second Engine instance pointed at the identical database, needed here only
+# so the two background threads below can each hold a genuinely independent
+# connection for a real concurrent-write test.
+_TEST_DATABASE_URL = os.environ.get(
+    "TEST_DATABASE_URL",
+    "postgresql+psycopg2://credchain:credchain@localhost:5432/credchain_test",
+)
+_race_test_engine = create_engine(_TEST_DATABASE_URL)
+
 SAMPLE_PDF_BYTES = b"%PDF-1.4\n%app\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF"
 
 
@@ -237,3 +262,205 @@ def test_student_cannot_set_application_status_and_company_cannot_touch_others_a
         f"/api/companies/me/applications/{app_id}/status", json={"status": "under_review"}, headers=_auth_header(verifier_b["token"])
     )
     assert other_company_attempt.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Prompt 3: database-level uniqueness on (job_id, student_id) — the final
+# concurrency safety boundary behind the existing application-level check
+# above (test_cannot_apply_twice_or_to_closed_or_nonexistent_job).
+# ---------------------------------------------------------------------------
+
+
+def test_unique_constraint_exists_on_job_id_and_student_id(client, db_session):
+    """
+    Deterministic, no service layer, no threads: proves the DB itself
+    rejects a second (job_id, student_id) row under the exact constraint
+    name the migration/model declare, independent of any application code.
+    """
+    verifier = _register_verifier(client, db_session, "app-uq-co@test.credchain.dev", "App UQ Co")
+    inst = _register_institution(client, db_session, "app-uq-inst@test.credchain.dev", "App UQ University")
+    student = _register_student(client, inst["institution_id"], "app-uq-stu@test.credchain.dev", "APP-UQ-STU")
+    job = _create_open_job(client, verifier["token"])
+
+    common = dict(
+        student_id=uuid_module.UUID(student["student_id"]),
+        job_id=uuid_module.UUID(job["id"]),
+        company_id=uuid_module.UUID(verifier["company_id"]),
+    )
+    db_session.add(JobApplication(**common))
+    db_session.flush()
+
+    db_session.add(JobApplication(**common))
+    with pytest.raises(IntegrityError) as excinfo:
+        db_session.flush()
+    constraint = getattr(getattr(excinfo.value.orig, "diag", None), "constraint_name", None)
+    assert constraint == "uq_job_applications_job_id_student_id"
+    db_session.rollback()
+
+
+def test_different_students_can_apply_to_same_job(client, db_session):
+    verifier = _register_verifier(client, db_session, "app-multi-co@test.credchain.dev", "App Multi Co")
+    inst = _register_institution(client, db_session, "app-multi-inst@test.credchain.dev", "App Multi University")
+    student_a = _register_student(client, inst["institution_id"], "app-multi-stu-a@test.credchain.dev", "APP-MULTI-A")
+    student_b = _register_student(client, inst["institution_id"], "app-multi-stu-b@test.credchain.dev", "APP-MULTI-B")
+    job = _create_open_job(client, verifier["token"])
+    cred_a = _issue_credential(client, inst["token"], student_a["student_id"], "migration", "Migration Certificate")
+    cred_b = _issue_credential(client, inst["token"], student_b["student_id"], "migration", "Migration Certificate")
+
+    resp_a = client.post(
+        "/api/students/me/applications", json={"job_id": job["id"], "credential_ids": [cred_a]}, headers=_auth_header(student_a["token"])
+    )
+    resp_b = client.post(
+        "/api/students/me/applications", json={"job_id": job["id"], "credential_ids": [cred_b]}, headers=_auth_header(student_b["token"])
+    )
+    assert resp_a.status_code == 201
+    assert resp_b.status_code == 201
+
+
+def test_same_student_can_apply_to_different_jobs(client, db_session):
+    verifier = _register_verifier(client, db_session, "app-two-jobs-co@test.credchain.dev", "App Two Jobs Co")
+    inst = _register_institution(client, db_session, "app-two-jobs-inst@test.credchain.dev", "App Two Jobs University")
+    student = _register_student(client, inst["institution_id"], "app-two-jobs-stu@test.credchain.dev", "APP-TWO-JOBS")
+    job_1 = _create_open_job(client, verifier["token"], title="Job One")
+    job_2 = _create_open_job(client, verifier["token"], title="Job Two")
+    cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
+
+    resp_1 = client.post(
+        "/api/students/me/applications", json={"job_id": job_1["id"], "credential_ids": [cred_id]}, headers=_auth_header(student["token"])
+    )
+    resp_2 = client.post(
+        "/api/students/me/applications", json={"job_id": job_2["id"], "credential_ids": [cred_id]}, headers=_auth_header(student["token"])
+    )
+    assert resp_1.status_code == 201
+    assert resp_2.status_code == 201
+
+
+def test_sequential_duplicate_creates_no_extra_activity_log_or_notification(client, db_session):
+    verifier = _register_verifier(client, db_session, "app-dup-side-co@test.credchain.dev", "App Dup Side Co")
+    inst = _register_institution(client, db_session, "app-dup-side-inst@test.credchain.dev", "App Dup Side University")
+    student = _register_student(client, inst["institution_id"], "app-dup-side-stu@test.credchain.dev", "APP-DUP-SIDE")
+    job = _create_open_job(client, verifier["token"])
+    cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
+
+    first = client.post(
+        "/api/students/me/applications", json={"job_id": job["id"], "credential_ids": [cred_id]}, headers=_auth_header(student["token"])
+    )
+    assert first.status_code == 201
+    application_id = uuid_module.UUID(first.json()["id"])
+
+    second = client.post(
+        "/api/students/me/applications", json={"job_id": job["id"], "credential_ids": [cred_id]}, headers=_auth_header(student["token"])
+    )
+    assert second.status_code == 409
+
+    logs = (
+        db_session.query(ActivityLog)
+        .filter(ActivityLog.entity_type == "job_application", ActivityLog.entity_id == application_id)
+        .all()
+    )
+    assert len(logs) == 1
+
+    notifications = db_session.query(Notification).filter(Notification.activity_log_id == logs[0].id).all()
+    assert len(notifications) == 1
+
+
+def test_database_level_duplicate_becomes_already_applied_not_500(client, db_session, monkeypatch):
+    """
+    Exercises the NEW IntegrityError -> AlreadyAppliedError conversion in
+    apply_to_job deterministically, without relying on real thread timing.
+
+    A genuine concurrent race is timing-dependent by nature (see
+    test_concurrent_duplicate_applications_only_one_succeeds below for a
+    best-effort real-thread version): here, the application-level duplicate
+    check is monkeypatched to report "no existing row" for exactly one call
+    -- precisely what it could legitimately observe a fraction of a second
+    before a concurrent request's INSERT lands -- while a real duplicate row
+    already exists. This isolates and proves the database-level fallback
+    handles that scenario cleanly (409, not 500) independent of scheduling.
+    """
+    verifier = _register_verifier(client, db_session, "app-race-mock-co@test.credchain.dev", "App Race Mock Co")
+    inst = _register_institution(client, db_session, "app-race-mock-inst@test.credchain.dev", "App Race Mock University")
+    student = _register_student(client, inst["institution_id"], "app-race-mock-stu@test.credchain.dev", "APP-RACE-MOCK")
+    job = _create_open_job(client, verifier["token"])
+    cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
+
+    first = client.post(
+        "/api/students/me/applications", json={"job_id": job["id"], "credential_ids": [cred_id]}, headers=_auth_header(student["token"])
+    )
+    assert first.status_code == 201
+
+    real_query = db_session.query
+
+    def _query_missing_the_row_already_created_above(model, *args, **kwargs):
+        query = real_query(model, *args, **kwargs)
+        if model is JobApplication:
+
+            class _AlwaysEmpty:
+                def filter(self, *a, **kw):
+                    return self
+
+                def first(self):
+                    return None
+
+            return _AlwaysEmpty()
+        return query
+
+    monkeypatch.setattr(db_session, "query", _query_missing_the_row_already_created_above)
+
+    second = client.post(
+        "/api/students/me/applications", json={"job_id": job["id"], "credential_ids": [cred_id]}, headers=_auth_header(student["token"])
+    )
+    assert second.status_code == 409
+    assert second.json()["detail"] == "You have already applied to this job"
+
+
+def test_concurrent_duplicate_applications_only_one_succeeds(client, db_session):
+    """
+    Best-effort real-concurrency test: two threads, each on its own DB
+    connection/session, both call apply_to_job for the same (job, student)
+    synchronized by a barrier so both are as likely as practically possible
+    to pass the application-level duplicate check before either commits.
+
+    True kernel-level simultaneity can never be guaranteed from a test, so
+    this cannot force the race every run -- but the assertions below hold
+    regardless of how the two threads actually interleave: exactly one
+    application is ever created, the other request is always rejected with
+    the same friendly error, and neither ever surfaces a raw 500.
+    """
+    verifier = _register_verifier(client, db_session, "app-race-co@test.credchain.dev", "App Race Co")
+    inst = _register_institution(client, db_session, "app-race-inst@test.credchain.dev", "App Race University")
+    student = _register_student(client, inst["institution_id"], "app-race-stu@test.credchain.dev", "APP-RACE-STU")
+    job = _create_open_job(client, verifier["token"])
+    cred_id = _issue_credential(client, inst["token"], student["student_id"], "migration", "Migration Certificate")
+
+    job_id = uuid_module.UUID(job["id"])
+    cred_uuid = uuid_module.UUID(cred_id)
+
+    results: list[str] = []
+    barrier = threading.Barrier(2)
+
+    def attempt() -> None:
+        session = RawSession(bind=_race_test_engine)
+        try:
+            student_obj = session.query(Student).filter(Student.student_identifier == "APP-RACE-STU").one()
+            barrier.wait(timeout=5)
+            try:
+                job_application_service.apply_to_job(session, student_obj, job_id=job_id, credential_ids=[cred_uuid])
+                results.append("success")
+            except job_application_service.AlreadyAppliedError:
+                results.append("already_applied")
+            except Exception as exc:  # pragma: no cover - would fail the assertion below
+                results.append(f"unexpected:{exc!r}")
+        finally:
+            session.close()
+
+    threads = [threading.Thread(target=attempt) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert sorted(results) == ["already_applied", "success"]
+
+    apps = db_session.query(JobApplication).filter(JobApplication.job_id == job_id).all()
+    assert len(apps) == 1
