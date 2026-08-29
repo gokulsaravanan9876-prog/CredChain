@@ -1,8 +1,6 @@
 import uuid
-from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -18,7 +16,7 @@ from ..schemas.institution_request import InstitutionCertificateRequestResponse,
 from ..schemas.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, Page
 from ..schemas.student_document import ApproveStudentDocumentBody, RejectStudentDocumentBody, StudentDocumentResponse
 from ..security.permissions import require_institution
-from ..services import credential_service, institution_request_service, institution_service, signing_service, student_document_service
+from ..services import credential_service, document_service, institution_request_service, institution_service, signing_service, student_document_service
 from ..services.credential_service import (
     CredentialValidationError,
     InstitutionNotVerifiedError,
@@ -233,6 +231,11 @@ async def issue_credential(
         raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(exc))
     except DocumentTooLargeError as exc:
         raise HTTPException(status_code=413, detail=str(exc))  # 413 Payload Too Large (installed FastAPI's named constant is deprecated)
+    except document_service.StorageUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Document storage is temporarily unavailable. Please try again shortly.",
+        )
     except institution_request_service.RequestNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Certificate request not found")
     except institution_request_service.RequestNotOwnedError:
@@ -288,6 +291,11 @@ async def bulk_issue_credential(
         raise _signing_key_unavailable_error()
     except CredentialValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except document_service.StorageUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Document storage is temporarily unavailable. Please try again shortly.",
+        )
 
     return BulkIssuanceResponse(
         results=[
@@ -394,7 +402,7 @@ def get_student_document(
 )
 def get_student_document_file(
     document_id: uuid.UUID, current_user: User = Depends(require_institution), db: Session = Depends(get_db)
-) -> FileResponse:
+) -> Response:
     institution = _institution_of(current_user)
     try:
         document = student_document_service.get_document_for_view(db, institution, document_id)
@@ -403,10 +411,22 @@ def get_student_document_file(
     except student_document_service.DocumentNotOwnedError:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This document was not uploaded for your institution")
 
-    path = Path(document.storage_path)
-    if not path.exists():
+    try:
+        exists = document_service.document_exists(document.storage_path)
+    except document_service.StorageUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Document storage is temporarily unavailable. Please try again shortly.",
+        )
+    if not exists:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file is missing on this server")
-    return FileResponse(path, media_type=document.mime_type, filename=document.original_filename)
+
+    data = document_service.read_document(document.storage_path)
+    return Response(
+        content=data,
+        media_type=document.mime_type,
+        headers={"Content-Disposition": f'attachment; filename="{document.original_filename}"'},
+    )
 
 
 @router.post(
@@ -438,6 +458,11 @@ def approve_student_document(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This document has already been reviewed")
     except student_document_service.DocumentFileMissingError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uploaded file is missing on this server")
+    except document_service.StorageUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Document storage is temporarily unavailable. Please try again shortly.",
+        )
     except InstitutionNotVerifiedError as exc:
         raise _verification_error(exc)
     except signing_service.InstitutionKeyMissingError:

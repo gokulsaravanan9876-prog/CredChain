@@ -15,7 +15,6 @@
 
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
@@ -186,10 +185,9 @@ def approve_document(
     if document.status not in (StudentDocumentStatus.UNVERIFIED, StudentDocumentStatus.UNDER_REVIEW):
         raise DocumentAlreadyReviewedError()
 
-    path = Path(document.storage_path)
-    if not path.exists():
+    if not document_service.document_exists(document.storage_path):
         raise DocumentFileMissingError()
-    document_bytes = path.read_bytes()
+    document_bytes = document_service.read_document(document.storage_path)
 
     from . import credential_service  # local import: avoids a service-to-service import cycle at module load time
 

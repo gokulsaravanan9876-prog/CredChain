@@ -333,6 +333,12 @@ async def bulk_issue_credentials(
             # remaining item in this batch would fail identically, and the honest, non-leaky
             # 503 message belongs at the route level, not stuffed into individual item errors.
             raise
+        except document_service.StorageUnavailableError:
+            # Same reasoning as InstitutionKeyMissingError above: a storage outage isn't
+            # specific to this one student's document — every remaining item would fail
+            # identically, so this aborts the whole batch for one honest 503 at the route
+            # level instead of N misleading per-item "failed" results.
+            raise
         except Exception as exc:  # noqa: BLE001 — deliberately broad: one bad item must never abort the batch
             results.append(BulkIssuanceItemResult(student_id=student_id, student_name=None, status="failed", error=str(exc)))
 

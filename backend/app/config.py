@@ -53,6 +53,17 @@ class Settings(BaseSettings):
     # --- Document storage ---
     storage_path: str = "./storage"
     max_document_size_bytes: int = 10 * 1024 * 1024  # 10 MB
+    # Supabase Storage (durable — fixes credential/student-document PDFs being lost on every
+    # Render redeploy, since local disk there is ephemeral while Postgres is not). Same
+    # "disabled until configured" pattern as ai_enabled/blockchain_enabled: empty by default, so
+    # every existing test/dev environment that hasn't set these keeps using local filesystem
+    # storage completely unchanged (see document_service.py). SUPABASE_SERVICE_ROLE_KEY must
+    # never be sent to the frontend, logged, or committed — same handling as
+    # key_encryption_secret/blockchain_private_key above.
+    supabase_url: str = ""
+    supabase_service_role_key: str = ""
+    supabase_credential_bucket: str = "credential-documents"
+    supabase_student_document_bucket: str = "student-documents"
 
     # --- Institution signing keys (dev key management — see
     # app/services/signing_service.py for the documented tradeoff) ---
