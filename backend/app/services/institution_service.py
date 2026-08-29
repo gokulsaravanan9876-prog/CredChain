@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session
 
 from ..models.institution import Institution
@@ -41,6 +41,14 @@ def list_institutions(
     `country = X` filter only matches rows that HAVE a `country` value.
 
     Returns (page_of_rows, total_matching_count) — never the whole table.
+
+    Ordering: when searching, a name that STARTS WITH the search term ranks
+    ahead of one that merely contains it elsewhere (e.g. "Aalto University"
+    ranks before a name that only mentions "Aalto" mid-string) — substring
+    matches still appear, just after every prefix match. Within each group,
+    plain case-insensitive alphabetical, with id as the final deterministic
+    tie-breaker. No search term means no ranking to compute — just
+    alphabetical.
     """
     page = max(1, page)
     page_size = max(1, min(page_size, MAX_PAGE_SIZE))
@@ -64,8 +72,14 @@ def list_institutions(
     if institution_type:
         query = query.filter(Institution.institution_type.ilike(institution_type.strip()))
 
+    order_columns = []
+    if search:
+        prefix_pattern = f"{search.strip().lower()}%"
+        order_columns.append(case((func.lower(Institution.name).like(prefix_pattern), 0), else_=1))
+    order_columns.extend([func.lower(Institution.name), Institution.id])
+
     total = query.count()
-    rows = query.order_by(Institution.name, Institution.id).offset((page - 1) * page_size).limit(page_size).all()
+    rows = query.order_by(*order_columns).offset((page - 1) * page_size).limit(page_size).all()
     return rows, total
 
 

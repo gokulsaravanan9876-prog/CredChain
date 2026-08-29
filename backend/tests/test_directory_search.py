@@ -317,3 +317,106 @@ def test_job_company_id_search_and_degree_filters(client, db_session):
     titles = [j["title"] for j in by_degree.json()["items"]]
     assert "Mechanical Design Engineer" in titles
     assert "Backend Engineer" not in titles
+
+
+# ---------------------------------------------------------------------------
+# Prefix-first ranking (organization-picker UX improvement): a name that
+# STARTS WITH the search term ranks ahead of one that only contains it
+# elsewhere. Substring matches still appear, just after every prefix match.
+# ---------------------------------------------------------------------------
+
+
+def test_company_search_prefix_match_ranks_before_substring_match(client, db_session):
+    # industry is a scoping filter (AND'd with search) so this test's ordering assertion can
+    # never be perturbed by unrelated companies elsewhere in the shared test database.
+    _directory_company(db_session, "Global Infrastructure Partners", industry="PrefixRankTestIndustry")
+    _directory_company(db_session, "Infosys", industry="PrefixRankTestIndustry")
+
+    resp = client.get("/api/companies", params={"search": "Inf", "industry": "PrefixRankTestIndustry"})
+    names = [c["name"] for c in resp.json()["items"]]
+    assert names == ["Infosys", "Global Infrastructure Partners"]
+
+
+def test_company_search_prefix_matches_sorted_alphabetically(client, db_session):
+    _directory_company(db_session, "Infosys", industry="PrefixAlphaTestIndustry")
+    _directory_company(db_session, "Infineon", industry="PrefixAlphaTestIndustry")
+
+    resp = client.get("/api/companies", params={"search": "Inf", "industry": "PrefixAlphaTestIndustry"})
+    names = [c["name"] for c in resp.json()["items"]]
+    assert names == ["Infineon", "Infosys"]
+
+
+def test_company_search_prefix_ranking_is_case_insensitive(client, db_session):
+    _directory_company(db_session, "Global Infrastructure Partners", industry="PrefixCaseTestIndustry")
+    _directory_company(db_session, "infosys", industry="PrefixCaseTestIndustry")
+
+    resp = client.get("/api/companies", params={"search": "INF", "industry": "PrefixCaseTestIndustry"})
+    names = [c["name"] for c in resp.json()["items"]]
+    assert names == ["infosys", "Global Infrastructure Partners"]
+
+
+def test_company_search_still_returns_pure_substring_matches(client, db_session):
+    _directory_company(db_session, "Tech Mahindra", industry="SubstringTestIndustry")
+    _directory_company(db_session, "Global Technology Partners", industry="SubstringTestIndustry")
+
+    resp = client.get("/api/companies", params={"search": "tech", "industry": "SubstringTestIndustry"})
+    names = [c["name"] for c in resp.json()["items"]]
+    assert names == ["Tech Mahindra", "Global Technology Partners"]
+
+
+def test_same_name_companies_remain_distinct_by_id_in_search_results(client, db_session):
+    directory_apple = _directory_company(db_session, "Apple", industry="SameNameTestIndustry")
+    verifier = _register_verifier(client, db_session, "apple-search-test@test.credchain.dev", "Apple")
+    verifier_company_id = verifier["company_id"]
+    registered_apple = db_session.get(Company, uuid.UUID(verifier_company_id))
+    registered_apple.industry = "SameNameTestIndustry"
+    db_session.commit()
+
+    resp = client.get("/api/companies", params={"search": "Apple", "industry": "SameNameTestIndustry"})
+    apple_rows = resp.json()["items"]
+    assert len(apple_rows) == 2
+    ids = {row["id"] for row in apple_rows}
+    assert ids == {str(directory_apple.id), verifier_company_id}
+    directory_row = next(r for r in apple_rows if r["id"] == str(directory_apple.id))
+    registered_row = next(r for r in apple_rows if r["id"] == verifier_company_id)
+    assert directory_row["is_registered"] is False
+    assert registered_row["is_registered"] is True
+
+
+def test_institution_search_prefix_match_ranks_before_substring_match(client, db_session):
+    _directory_institution(db_session, "Royal Aalborg Institute", institution_type="PrefixRankTestType")
+    _directory_institution(db_session, "Aalto University", institution_type="PrefixRankTestType")
+
+    resp = client.get("/api/institutions", params={"search": "Aal", "institution_type": "PrefixRankTestType"})
+    names = [i["name"] for i in resp.json()["items"]]
+    assert names == ["Aalto University", "Royal Aalborg Institute"]
+
+
+def test_institution_search_prefix_matches_sorted_alphabetically(client, db_session):
+    _directory_institution(db_session, "Aalto University", institution_type="PrefixAlphaTestType")
+    _directory_institution(db_session, "Aalborg University", institution_type="PrefixAlphaTestType")
+
+    resp = client.get("/api/institutions", params={"search": "Aal", "institution_type": "PrefixAlphaTestType"})
+    names = [i["name"] for i in resp.json()["items"]]
+    assert names == ["Aalborg University", "Aalto University"]
+
+
+def test_institution_search_prefix_ranking_is_case_insensitive(client, db_session):
+    _directory_institution(db_session, "Royal Aalborg Institute", institution_type="PrefixCaseTestType")
+    _directory_institution(db_session, "aalto university", institution_type="PrefixCaseTestType")
+
+    resp = client.get("/api/institutions", params={"search": "AAL", "institution_type": "PrefixCaseTestType"})
+    names = [i["name"] for i in resp.json()["items"]]
+    assert names == ["aalto university", "Royal Aalborg Institute"]
+
+
+def test_institution_search_with_empty_search_is_plain_alphabetical(client, db_session):
+    _directory_institution(db_session, "Zzz Empty Search University", institution_type="EmptySearchOrderingType")
+    _directory_institution(db_session, "Zza Empty Search University", institution_type="EmptySearchOrderingType")
+
+    # No `search` term at all (institution_type alone isolates these two rows from everything
+    # else the rest of the suite has created) — exercises the plain lower(name)-only ordering
+    # path, with no prefix rank to compute.
+    resp = client.get("/api/institutions", params={"institution_type": "EmptySearchOrderingType"})
+    names = [i["name"] for i in resp.json()["items"]]
+    assert names == ["Zza Empty Search University", "Zzz Empty Search University"]

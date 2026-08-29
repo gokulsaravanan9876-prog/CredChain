@@ -1,4 +1,4 @@
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from ..models.company import Company
@@ -25,6 +25,14 @@ def list_companies(
     combined field (see list_institutions for the same country-vs-location
     rationale). Returns (page_of_rows, total_matching_count) — never the
     whole table.
+
+    Ordering: when searching, a name that STARTS WITH the search term ranks
+    ahead of one that merely contains it elsewhere (e.g. "Infosys" ranks
+    before "Global Infrastructure Partners" for search "Inf") — substring
+    matches still appear, just after every prefix match. Within each group,
+    plain case-insensitive alphabetical, with id as the final deterministic
+    tie-breaker. No search term means no ranking to compute — just
+    alphabetical.
     """
     page = max(1, page)
     page_size = max(1, min(page_size, MAX_PAGE_SIZE))
@@ -42,8 +50,14 @@ def list_companies(
     if country:
         query = query.filter(Company.country.ilike(country.strip()))
 
+    order_columns = []
+    if search:
+        prefix_pattern = f"{search.strip().lower()}%"
+        order_columns.append(case((func.lower(Company.name).like(prefix_pattern), 0), else_=1))
+    order_columns.extend([func.lower(Company.name), Company.id])
+
     total = query.count()
-    rows = query.order_by(Company.name, Company.id).offset((page - 1) * page_size).limit(page_size).all()
+    rows = query.order_by(*order_columns).offset((page - 1) * page_size).limit(page_size).all()
     return rows, total
 
 
