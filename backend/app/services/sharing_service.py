@@ -54,6 +54,18 @@ class CompanyNotFoundError(Exception):
     pass
 
 
+class CompanyNotRegisteredError(Exception):
+    """
+    Raised when a direct share targets a directory-only Company (user_id is
+    NULL). Such a row can never have a logged-in verifier — authorization_service
+    only ever matches a grant against current_user.company — so a share created
+    against it could never be redeemed by anyone. Not an authorization change:
+    this only narrows what create_direct_share accepts as input.
+    """
+
+    pass
+
+
 class ShareNotFoundError(Exception):
     pass
 
@@ -323,6 +335,8 @@ def create_direct_share(
     company = db.get(Company, company_id)
     if company is None:
         raise CompanyNotFoundError()
+    if company.user_id is None:
+        raise CompanyNotRegisteredError()
 
     credentials = _resolve_and_validate_credentials(db, student, credential_ids)
 

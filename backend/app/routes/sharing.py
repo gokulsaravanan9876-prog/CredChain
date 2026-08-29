@@ -91,6 +91,11 @@ def create_direct_share(
         )
     except sharing_service.CompanyNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
+    except sharing_service.CompanyNotRegisteredError:
+        raise HTTPException(
+            status_code=422,
+            detail="This company is a directory listing only and has no CredChain account to receive a share. Choose a registered company instead.",
+        )
     except sharing_service.InvalidExpiryError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except sharing_service.CredentialSelectionError as exc:

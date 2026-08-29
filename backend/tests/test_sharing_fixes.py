@@ -345,6 +345,74 @@ def test_direct_share_to_nonexistent_company_is_404(client, db_session):
     assert resp.status_code == 404
 
 
+def test_direct_share_rejects_directory_only_company(client, db_session):
+    """
+    Regression test for the "012" incident: a directory-only Company row
+    (user_id IS NULL, e.g. imported from Wikidata) can never have a logged-in
+    verifier, so a share created against it could never be redeemed by
+    anyone. create_direct_share must refuse it outright rather than silently
+    creating a dead-end grant.
+    """
+    from app.models.company import Company
+
+    ctx = _setup(client, db_session, "2m")
+    directory_only = Company(name="Apple Inc.", source="wikidata", source_id="Q312")
+    db_session.add(directory_only)
+    db_session.commit()
+    db_session.refresh(directory_only)
+
+    resp = client.post(
+        "/api/students/me/shares",
+        json={"company_id": str(directory_only.id), "credential_ids": [ctx["credential"]["id"]], "expires_in_days": 7},
+        headers=_auth_header(ctx["student"]["token"]),
+    )
+    assert resp.status_code == 422, resp.text
+    assert "directory listing" in resp.json()["detail"].lower()
+
+
+def test_direct_share_to_similarly_named_registered_company_resolves_to_its_own_canonical_id(client, db_session):
+    """
+    Two rows can share a similar name — a directory-only 'Apple Inc.' and a
+    separately registered 'Apple' account. The share must resolve to the
+    REGISTERED company's own canonical company_id, and only that company's
+    login can be authorized against it — never the directory-only lookalike.
+    """
+    from app.models.company import Company
+
+    ctx = _setup(client, db_session, "2n")
+    db_session.add(Company(name="Apple Inc.", source="wikidata", source_id="Q312"))
+    db_session.commit()
+
+    other_verifier = _register_verifier(client, db_session, "fix-apple-2n@test.credchain.dev", "Apple")
+
+    resp = client.post(
+        "/api/students/me/shares",
+        json={"company_id": other_verifier["company_id"], "credential_ids": [ctx["credential"]["id"]], "expires_in_days": 7},
+        headers=_auth_header(ctx["student"]["token"]),
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["share"]["company_id"] == other_verifier["company_id"]
+    assert body["share"]["company_name"] == "Apple"
+
+    # The unrelated pre-existing verifier from _setup (a different registered
+    # company) must still be UNAUTHORIZED for this credential — the grant is
+    # scoped to Apple's company_id only, exactly as before this change.
+    verify_wrong_company = client.post(
+        "/api/verification/verify",
+        json={"credential_id": ctx["credential"]["id"]},
+        headers=_auth_header(ctx["verifier"]["token"]),
+    )
+    assert verify_wrong_company.json()["result"] == "UNAUTHORIZED"
+
+    verify_apple = client.post(
+        "/api/verification/verify",
+        json={"credential_id": ctx["credential"]["id"]},
+        headers=_auth_header(other_verifier["token"]),
+    )
+    assert verify_apple.json()["result"] == "VERIFIED"
+
+
 def test_direct_share_cannot_include_another_students_credential(client, db_session):
     ctx = _setup(client, db_session, "2l")
     other_student = _register_student(client, ctx["inst"]["institution_id"], "fix-other-2l@test.credchain.dev", "FIX-OTHER-2l")
