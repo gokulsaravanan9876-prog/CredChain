@@ -9,7 +9,7 @@ python-dotenv==1.1.1
 
 # Phase 3 — auth
 argon2-cffi==25.1.0
-pyjwt==2.10.1
+pyjwt==2.12.0
 email-validator==2.2.0
 
 # Phase 4 — credential issuance, signing, file upload
