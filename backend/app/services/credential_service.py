@@ -22,7 +22,7 @@ from ..models.enums import CredentialStatus, CredentialType, VerificationStatus
 from ..models.institution import Institution
 from ..models.student import Student
 from ..schemas.credential import CredentialResponse
-from . import document_service, signing_service
+from . import document_service, notification_service, signing_service
 from .credential_payload import build_canonical_credential_payload, canonicalize_credential_payload
 
 MIN_CGPA, MAX_CGPA = 0, 10
@@ -169,14 +169,24 @@ def issue_signed_credential(
             )
         )
 
-        db.add(
-            ActivityLog(
-                actor_user_id=institution.user_id,
-                action="CREDENTIAL_ISSUED",
-                entity_type="credential",
-                entity_id=credential.id,
-                metadata_={"credential_identifier": credential_identifier, "student_id": str(student.id)},
-            )
+        log = ActivityLog(
+            actor_user_id=institution.user_id,
+            action="CREDENTIAL_ISSUED",
+            entity_type="credential",
+            entity_id=credential.id,
+            metadata_={"credential_identifier": credential_identifier, "student_id": str(student.id)},
+        )
+        db.add(log)
+        db.flush()
+
+        notification_service.create_notification(
+            db,
+            user_id=student.user_id,
+            title="Credential issued",
+            message=f"{institution.name} issued you a credential: {title}",
+            activity_log_id=log.id,
+            link_entity_type="credential",
+            link_entity_id=credential.id,
         )
 
         db.commit()
@@ -350,14 +360,24 @@ def revoke_credential(db: Session, institution: Institution, credential_id: uuid
     credential.revoked_at = datetime.now(timezone.utc)
     db.add(credential)
 
-    db.add(
-        ActivityLog(
-            actor_user_id=institution.user_id,
-            action="CREDENTIAL_REVOKED",
-            entity_type="credential",
-            entity_id=credential.id,
-            metadata_={"credential_identifier": credential.credential_identifier},
-        )
+    log = ActivityLog(
+        actor_user_id=institution.user_id,
+        action="CREDENTIAL_REVOKED",
+        entity_type="credential",
+        entity_id=credential.id,
+        metadata_={"credential_identifier": credential.credential_identifier},
+    )
+    db.add(log)
+    db.flush()
+
+    notification_service.create_notification(
+        db,
+        user_id=credential.student.user_id,
+        title="Credential revoked",
+        message=f"{institution.name} revoked your credential: {credential.title}",
+        activity_log_id=log.id,
+        link_entity_type="credential",
+        link_entity_id=credential.id,
     )
 
     db.commit()

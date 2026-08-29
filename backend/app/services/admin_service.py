@@ -20,6 +20,7 @@ from ..models.institution import Institution
 from ..models.user import User
 from ..schemas.admin import PendingCompanyResponse, PendingInstitutionResponse
 from ..schemas.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from . import notification_service
 
 
 class InstitutionNotFoundError(Exception):
@@ -38,8 +39,11 @@ class AlreadyDecidedError(Exception):
     """Raised on approve/reject of an institution/company whose verification_status is not currently PENDING — prevents re-deciding an already-verified or already-rejected account."""
 
 
-def _log(db: Session, *, actor: User, action: str, entity_type: str, entity_id: uuid.UUID, metadata: dict | None = None) -> None:
-    db.add(ActivityLog(actor_user_id=actor.id, action=action, entity_type=entity_type, entity_id=entity_id, metadata_=metadata))
+def _log(db: Session, *, actor: User, action: str, entity_type: str, entity_id: uuid.UUID, metadata: dict | None = None) -> ActivityLog:
+    log = ActivityLog(actor_user_id=actor.id, action=action, entity_type=entity_type, entity_id=entity_id, metadata_=metadata)
+    db.add(log)
+    db.flush()
+    return log
 
 
 # --- Institutions -----------------------------------------------------------
@@ -86,7 +90,16 @@ def approve_institution(db: Session, admin: User, institution_id: uuid.UUID) -> 
     institution.verified_by = admin.id
     institution.rejection_reason = None
     db.add(institution)
-    _log(db, actor=admin, action="ADMIN_APPROVED_INSTITUTION", entity_type="institution", entity_id=institution.id)
+    log = _log(db, actor=admin, action="ADMIN_APPROVED_INSTITUTION", entity_type="institution", entity_id=institution.id)
+    notification_service.create_notification(
+        db,
+        user_id=institution.user_id,
+        title="Institution approved",
+        message=f"{institution.name} was approved and can now issue credentials",
+        activity_log_id=log.id,
+        link_entity_type="institution",
+        link_entity_id=institution.id,
+    )
     db.commit()
     db.refresh(institution)
     return institution
@@ -101,7 +114,18 @@ def reject_institution(db: Session, admin: User, institution_id: uuid.UUID, reas
     institution.verified_by = admin.id
     institution.rejection_reason = reason
     db.add(institution)
-    _log(db, actor=admin, action="ADMIN_REJECTED_INSTITUTION", entity_type="institution", entity_id=institution.id, metadata={"reason": reason})
+    log = _log(
+        db, actor=admin, action="ADMIN_REJECTED_INSTITUTION", entity_type="institution", entity_id=institution.id, metadata={"reason": reason}
+    )
+    notification_service.create_notification(
+        db,
+        user_id=institution.user_id,
+        title="Institution registration rejected",
+        message=f"{institution.name}'s registration was rejected: {reason}",
+        activity_log_id=log.id,
+        link_entity_type="institution",
+        link_entity_id=institution.id,
+    )
     db.commit()
     db.refresh(institution)
     return institution
@@ -161,7 +185,16 @@ def approve_company(db: Session, admin: User, company_id: uuid.UUID) -> Company:
     company.verified_by = admin.id
     company.rejection_reason = None
     db.add(company)
-    _log(db, actor=admin, action="ADMIN_APPROVED_COMPANY", entity_type="company", entity_id=company.id)
+    log = _log(db, actor=admin, action="ADMIN_APPROVED_COMPANY", entity_type="company", entity_id=company.id)
+    notification_service.create_notification(
+        db,
+        user_id=company.user_id,
+        title="Company approved",
+        message=f"{company.name} was approved and can now publish jobs",
+        activity_log_id=log.id,
+        link_entity_type="company",
+        link_entity_id=company.id,
+    )
     db.commit()
     db.refresh(company)
     return company
@@ -176,7 +209,16 @@ def reject_company(db: Session, admin: User, company_id: uuid.UUID, reason: str)
     company.verified_by = admin.id
     company.rejection_reason = reason
     db.add(company)
-    _log(db, actor=admin, action="ADMIN_REJECTED_COMPANY", entity_type="company", entity_id=company.id, metadata={"reason": reason})
+    log = _log(db, actor=admin, action="ADMIN_REJECTED_COMPANY", entity_type="company", entity_id=company.id, metadata={"reason": reason})
+    notification_service.create_notification(
+        db,
+        user_id=company.user_id,
+        title="Company registration rejected",
+        message=f"{company.name}'s registration was rejected: {reason}",
+        activity_log_id=log.id,
+        link_entity_type="company",
+        link_entity_id=company.id,
+    )
     db.commit()
     db.refresh(company)
     return company

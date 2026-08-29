@@ -7,13 +7,36 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from ..models.company import Company
-from ..models.enums import UserRole
+from ..models.enums import UserRole, VerificationStatus
 from ..models.institution import Institution
 from ..models.student import Student
 from ..models.user import User
 from ..schemas.auth import RegisterRequest
 from ..security.password import hash_password, verify_password
-from . import signing_service
+from . import notification_service, signing_service
+
+
+def _notify_admins_of_pending_review(db: Session, *, entity_type: str, entity_id, org_name: str) -> None:
+    """
+    One Notification per active admin, generated exactly once at the moment a real
+    institution/company registration succeeds (this function is only ever called from
+    inside register_user's own commit, which itself only runs once per successful claim
+    — the atomic UPDATE ... WHERE user_id IS NULL guard above ensures a given directory
+    row can only ever be successfully claimed once). No ActivityLog entry is added for
+    this — admin's "awaiting review" queue is already the real, live PENDING-status query
+    in admin_service.list_pending_institutions/list_pending_companies; this notification
+    is just a heads-up pointing at that same real record, not a second source of truth.
+    """
+    admin_ids = [row[0] for row in db.query(User.id).filter(User.role == UserRole.ADMIN, User.is_active.is_(True)).all()]
+    for admin_id in admin_ids:
+        notification_service.create_notification(
+            db,
+            user_id=admin_id,
+            title="New registration awaiting review",
+            message=f"{org_name} registered and is awaiting verification",
+            link_entity_type=entity_type,
+            link_entity_id=entity_id,
+        )
 
 
 class EmailAlreadyRegisteredError(Exception):
@@ -137,6 +160,10 @@ def register_user(db: Session, payload: RegisterRequest) -> User:
         # account was never re-registered, is left untouched), so this is safe
         # to call unconditionally here.
         signing_service.ensure_institution_keypair(db, institution)
+        # Only a genuinely PENDING row needs admin's attention — a grandfathered/already-verified
+        # directory row being claimed doesn't belong in the "awaiting review" notification.
+        if institution.verification_status == VerificationStatus.PENDING:
+            _notify_admins_of_pending_review(db, entity_type="institution", entity_id=institution.id, org_name=institution.name)
 
     elif payload.role == UserRole.VERIFIER:
         if not payload.company_id:
@@ -150,6 +177,8 @@ def register_user(db: Session, payload: RegisterRequest) -> User:
         if result.rowcount == 0:
             raise CompanyAlreadyClaimedError()
         db.refresh(company)
+        if company.verification_status == VerificationStatus.PENDING:
+            _notify_admins_of_pending_review(db, entity_type="company", entity_id=company.id, org_name=company.name)
 
     db.commit()
     db.refresh(user)

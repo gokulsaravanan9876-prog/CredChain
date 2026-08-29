@@ -34,6 +34,7 @@ import type {
   InstitutionCertificateRequest,
   StudentDocument,
   NotificationCounts,
+  AppNotification,
   Job,
   CreateJobInput,
   UpdateCompanyProfileInput,
@@ -661,6 +662,28 @@ export async function rejectStudentDocument(documentId: string, reason: string):
 
 export async function getNotificationCounts(): Promise<NotificationCounts> {
   return apiClient.get<NotificationCounts>('/notifications/me/counts')
+}
+
+// ---- Notification center (real backend) — answers "what new events do I have?",
+// distinct from the pending-action counts above ("what currently needs my action?"). ------
+
+/** Paginated, newest-first notification history — never loads the full history in one response. */
+export async function getNotificationsPage(params?: { page?: number; pageSize?: number }): Promise<Page<AppNotification>> {
+  return apiClient.get<Page<AppNotification>>(
+    `/notifications/me${toQueryString({ page: params?.page, page_size: params?.pageSize })}`
+  )
+}
+
+export async function getUnreadNotificationCount(): Promise<number> {
+  return apiClient.get<number>('/notifications/me/unread-count')
+}
+
+export async function markNotificationRead(notificationId: string): Promise<AppNotification> {
+  return apiClient.post<AppNotification>(`/notifications/me/${notificationId}/read`)
+}
+
+export async function markAllNotificationsRead(): Promise<{ updated: number }> {
+  return apiClient.post<{ updated: number }>('/notifications/me/read-all')
 }
 
 // ---- Verifier document view/download (real backend, PS3 Phase G) ---------------------

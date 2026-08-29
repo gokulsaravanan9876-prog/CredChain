@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from ..models.activity_log import ActivityLog
 from ..models.credential_request import CredentialRequest
 from ..models.enums import ApplicationStatus, CredentialRequestStatus, JobStatus, SharePermission
 from ..models.job import Job
@@ -23,7 +24,7 @@ from ..models.job_application import JobApplication
 from ..models.student import Student
 from ..schemas.job import EligibilityResult
 from ..schemas.job_application import CompanyApplicationResponse, StudentApplicationResponse
-from . import eligibility_service, sharing_service
+from . import eligibility_service, notification_service, sharing_service
 
 APPLICATION_SHARE_EXPIRY_DAYS = 30
 
@@ -109,6 +110,10 @@ def apply_to_job(
     # Reuses the existing, unmodified approve_request — same ownership
     # checks on credential_ids, same ShareGrant + credential_request_id
     # link that the mismatch/verification pipeline already understands.
+    # notify=False: this call's own CREDENTIAL_REQUEST_APPROVED/CREDENTIAL_SHARED
+    # notifications would duplicate the single, more specific APPLICATION_SUBMITTED
+    # notification created below for this exact same click (see approve_request's
+    # and _create_share_grant's docstrings).
     grant, _raw_token = sharing_service.approve_request(
         db,
         student,
@@ -116,6 +121,7 @@ def apply_to_job(
         credential_ids=credential_ids,
         expires_in_days=APPLICATION_SHARE_EXPIRY_DAYS,
         permission=SharePermission.VIEW_ONLY,
+        notify=False,
     )
 
     application = JobApplication(
@@ -126,6 +132,32 @@ def apply_to_job(
         credential_request_id=request.id,
     )
     db.add(application)
+    db.flush()
+
+    log = ActivityLog(
+        actor_user_id=student.user_id,
+        action="APPLICATION_SUBMITTED",
+        entity_type="job_application",
+        entity_id=application.id,
+        metadata_={"job_id": str(job.id)},
+    )
+    db.add(log)
+    db.flush()
+
+    # A Job's owning company is always a registered, verified account — publish_job (the only
+    # way a job becomes visible enough to apply to) already requires that — so no directory-only
+    # guard is needed here, unlike the request/share paths above where a company_id can
+    # legitimately be reached before a request is ever approved.
+    notification_service.create_notification(
+        db,
+        user_id=grant.company.user_id,
+        title="New job application",
+        message=f"{student.user.full_name} applied to {job.title}",
+        activity_log_id=log.id,
+        link_entity_type="job_application",
+        link_entity_id=application.id,
+    )
+
     db.commit()
     db.refresh(application)
     return application
@@ -167,17 +199,26 @@ def update_status(
     application.rejection_reason = reason.strip() if new_status == ApplicationStatus.REJECTED else application.rejection_reason
     db.add(application)
 
-    from ..models.activity_log import ActivityLog
+    log = ActivityLog(
+        actor_user_id=application.company.user_id,
+        action=f"APPLICATION_{new_status.value.upper()}",
+        entity_type="job_application",
+        entity_id=application.id,
+        metadata_={"job_id": str(application.job_id), "student_id": str(application.student_id)}
+        | ({"reason": application.rejection_reason} if new_status == ApplicationStatus.REJECTED else {}),
+    )
+    db.add(log)
+    db.flush()
 
-    db.add(
-        ActivityLog(
-            actor_user_id=application.company.user_id,
-            action=f"APPLICATION_{new_status.value.upper()}",
-            entity_type="job_application",
-            entity_id=application.id,
-            metadata_={"job_id": str(application.job_id), "student_id": str(application.student_id)}
-            | ({"reason": application.rejection_reason} if new_status == ApplicationStatus.REJECTED else {}),
-        )
+    status_label = new_status.value.replace("_", " ")
+    notification_service.create_notification(
+        db,
+        user_id=application.student.user_id,
+        title="Application status updated",
+        message=f"Your application for {application.job.title} at {application.company.name} is now {status_label}",
+        activity_log_id=log.id,
+        link_entity_type="job_application",
+        link_entity_id=application.id,
     )
 
     db.commit()
@@ -198,16 +239,24 @@ def withdraw_application(db: Session, student: Student, application_id: uuid.UUI
     application.status = ApplicationStatus.WITHDRAWN
     db.add(application)
 
-    from ..models.activity_log import ActivityLog
+    log = ActivityLog(
+        actor_user_id=student.user_id,
+        action="APPLICATION_WITHDRAWN",
+        entity_type="job_application",
+        entity_id=application.id,
+        metadata_={"job_id": str(application.job_id)},
+    )
+    db.add(log)
+    db.flush()
 
-    db.add(
-        ActivityLog(
-            actor_user_id=student.user_id,
-            action="APPLICATION_WITHDRAWN",
-            entity_type="job_application",
-            entity_id=application.id,
-            metadata_={"job_id": str(application.job_id)},
-        )
+    notification_service.create_notification(
+        db,
+        user_id=application.company.user_id,
+        title="Application withdrawn",
+        message=f"{student.user.full_name} withdrew their application for {application.job.title}",
+        activity_log_id=log.id,
+        link_entity_type="job_application",
+        link_entity_id=application.id,
     )
 
     db.commit()

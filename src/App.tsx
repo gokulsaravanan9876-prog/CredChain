@@ -33,6 +33,9 @@ import { Documents as StudentDocuments } from './portals/student/Documents'
 // Public (no auth required)
 import { ShareAccess } from './portals/shared/ShareAccess'
 
+// Shared across every authenticated portal
+import { Notifications } from './portals/shared/Notifications'
+
 // Institution
 import { InstitutionDashboard } from './portals/institution/Dashboard'
 import { Students } from './portals/institution/Students'
@@ -160,6 +163,7 @@ function AppRoutes() {
           <Route path="share/confirmation" element={<ShareConfirmation />} />
           <Route path="shares" element={<Shares />} />
           <Route path="activity" element={<StudentActivity />} />
+          <Route path="notifications" element={<Notifications />} />
           <Route path="settings" element={<Stub icon={Settings} title="Settings" description="Account and notification settings are not part of this prototype." />} />
           <Route path="profile" element={<Stub icon={UserIcon} title="Profile" description="Profile management is not part of this prototype." />} />
         </Route>
@@ -176,6 +180,7 @@ function AppRoutes() {
           <Route path="certificate-requests" element={<InstitutionCertificateRequests />} />
           <Route path="documents" element={<DocumentReview />} />
           <Route path="activity" element={<InstitutionActivity />} />
+          <Route path="notifications" element={<Notifications />} />
           <Route path="settings" element={<Stub icon={Settings} title="Settings" description="Institution account settings are not part of this prototype." />} />
         </Route>
       </Route>
@@ -190,12 +195,14 @@ function AppRoutes() {
           <Route path="requests/new" element={<RequestCredentials />} />
           <Route path="verify/:credentialId" element={<VerificationResult />} />
           <Route path="activity" element={<VerifierActivity />} />
+          <Route path="notifications" element={<Notifications />} />
         </Route>
       </Route>
 
       <Route element={<ProtectedRoute role="admin" />}>
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<AdminDashboard />} />
+          <Route path="notifications" element={<Notifications />} />
         </Route>
       </Route>
 

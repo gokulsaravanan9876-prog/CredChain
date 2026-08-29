@@ -35,6 +35,7 @@ from ..schemas.sharing import (
     SharedCredentialItem,
 )
 from ..security.tokens import generate_raw_token, hash_token
+from . import notification_service
 
 
 class StudentNotFoundError(Exception):
@@ -143,15 +144,26 @@ def create_credential_request(
     db.add(request)
     db.flush()
 
-    db.add(
-        ActivityLog(
-            actor_user_id=company.user_id,
-            action="CREDENTIAL_REQUEST_CREATED",
-            entity_type="credential_request",
-            entity_id=request.id,
-            metadata_={"student_id": str(student.id), "purpose": purpose},
-        )
+    log = ActivityLog(
+        actor_user_id=company.user_id,
+        action="CREDENTIAL_REQUEST_CREATED",
+        entity_type="credential_request",
+        entity_id=request.id,
+        metadata_={"student_id": str(student.id), "purpose": purpose},
     )
+    db.add(log)
+    db.flush()
+
+    notification_service.create_notification(
+        db,
+        user_id=student.user_id,
+        title="New credential request",
+        message=f"{company.name} requested your credentials",
+        activity_log_id=log.id,
+        link_entity_type="credential_request",
+        link_entity_id=request.id,
+    )
+
     db.commit()
     db.refresh(request)
     return request
@@ -192,15 +204,28 @@ def decline_request(db: Session, student: Student, request_id: uuid.UUID) -> Cre
     request.responded_at = datetime.now(timezone.utc)
     db.add(request)
 
-    db.add(
-        ActivityLog(
-            actor_user_id=student.user_id,
-            action="CREDENTIAL_REQUEST_DECLINED",
-            entity_type="credential_request",
-            entity_id=request.id,
-            metadata_={"company_id": str(request.company_id)},
-        )
+    log = ActivityLog(
+        actor_user_id=student.user_id,
+        action="CREDENTIAL_REQUEST_DECLINED",
+        entity_type="credential_request",
+        entity_id=request.id,
+        metadata_={"company_id": str(request.company_id)},
     )
+    db.add(log)
+    db.flush()
+
+    company = db.get(Company, request.company_id)
+    if company is not None and company.user_id is not None:
+        notification_service.create_notification(
+            db,
+            user_id=company.user_id,
+            title="Credential request declined",
+            message=f"{student.user.full_name} declined your credential request",
+            activity_log_id=log.id,
+            link_entity_type="credential_request",
+            link_entity_id=request.id,
+        )
+
     db.commit()
     db.refresh(request)
     return request
@@ -228,6 +253,7 @@ def _create_share_grant(
     expires_in_days: int,
     permission: SharePermission,
     credential_request_id: uuid.UUID | None,
+    notify: bool = True,
 ) -> tuple[ShareGrant, str]:
     """
     The ONE place a ShareGrant + ShareGrantCredential rows + secure token are
@@ -235,6 +261,16 @@ def _create_share_grant(
     and create_direct_share (credential_request_id null). Returns (grant,
     raw_token); the raw token is NOT persisted anywhere, the caller (the
     route) must hand it to the client and then let it go.
+
+    notify=False lets job_application_service.apply_to_job suppress this
+    grant's own notification: applying to a job already sends the company
+    one clear "new application" notification, and also routes through this
+    function internally (via approve_request) to create the real share — a
+    second "credentials shared with you" notification for that exact same
+    click would be a duplicate push for one logical event (see Phase 9 of
+    the notification design). Every genuinely standalone caller (a real
+    approve_request or create_direct_share invoked by a student acting on
+    their own) leaves this True.
     """
     raw_token = generate_raw_token()
     token_hash = hash_token(raw_token)
@@ -254,15 +290,34 @@ def _create_share_grant(
     for credential in credentials:
         db.add(ShareGrantCredential(share_grant_id=grant.id, credential_id=credential.id))
 
-    db.add(
-        ActivityLog(
-            actor_user_id=student.user_id,
-            action="CREDENTIAL_SHARED",
-            entity_type="share_grant",
-            entity_id=grant.id,
-            metadata_={"company_id": str(company_id), "credential_count": len(credentials)},
-        )
+    log = ActivityLog(
+        actor_user_id=student.user_id,
+        action="CREDENTIAL_SHARED",
+        entity_type="share_grant",
+        entity_id=grant.id,
+        metadata_={"company_id": str(company_id), "credential_count": len(credentials)},
     )
+    db.add(log)
+    db.flush()
+
+    if notify:
+        company = db.get(Company, company_id)
+        # Sharing already requires an existing, real company row (the recipient search this
+        # links from only ever offers registered companies — see ShareFlow.tsx) — a directory-only
+        # company can never be a share recipient, but guard anyway since this function has no
+        # other way to enforce that invariant itself.
+        if company is not None and company.user_id is not None:
+            label = credentials[0].title if len(credentials) == 1 else f"{len(credentials)} credentials"
+            notification_service.create_notification(
+                db,
+                user_id=company.user_id,
+                title="Credentials shared with you",
+                message=f"{student.user.full_name} shared {label} with {company.name}",
+                activity_log_id=log.id,
+                link_entity_type="share_grant",
+                link_entity_id=grant.id,
+            )
+
     return grant, raw_token
 
 
@@ -274,6 +329,7 @@ def approve_request(
     credential_ids: list[uuid.UUID],
     expires_in_days: int,
     permission: SharePermission = SharePermission.VIEW_ONLY,
+    notify: bool = True,
 ) -> tuple[ShareGrant, str]:
     """
     Creates the ShareGrant + ShareGrantCredential rows AND the secure token
@@ -284,6 +340,14 @@ def approve_request(
     company's original ask; _create_share_grant is the only place a
     ShareGrant is actually created, and it only ever grants what's in
     credential_ids).
+
+    notify=False is used by job_application_service.apply_to_job, which
+    calls this to fulfil a system-generated request as part of applying to
+    a job — that flow sends its own single, more specific "new application"
+    notification instead (see _create_share_grant's docstring for the full
+    duplicate-notification rationale). Every genuine, student-initiated
+    approval (the real /api/credential-requests/{id}/approve route) leaves
+    this True.
     """
     if expires_in_days not in ALLOWED_EXPIRY_DAYS:
         raise InvalidExpiryError(f"expires_in_days must be one of {ALLOWED_EXPIRY_DAYS}")
@@ -301,21 +365,35 @@ def approve_request(
         expires_in_days=expires_in_days,
         permission=permission,
         credential_request_id=request.id,
+        notify=notify,
     )
 
     request.status = CredentialRequestStatus.APPROVED
     request.responded_at = datetime.now(timezone.utc)
     db.add(request)
 
-    db.add(
-        ActivityLog(
-            actor_user_id=student.user_id,
-            action="CREDENTIAL_REQUEST_APPROVED",
-            entity_type="credential_request",
-            entity_id=request.id,
-            metadata_={"company_id": str(request.company_id), "credential_count": len(credentials)},
-        )
+    log = ActivityLog(
+        actor_user_id=student.user_id,
+        action="CREDENTIAL_REQUEST_APPROVED",
+        entity_type="credential_request",
+        entity_id=request.id,
+        metadata_={"company_id": str(request.company_id), "credential_count": len(credentials)},
     )
+    db.add(log)
+    db.flush()
+
+    if notify:
+        company = db.get(Company, request.company_id)
+        if company is not None and company.user_id is not None:
+            notification_service.create_notification(
+                db,
+                user_id=company.user_id,
+                title="Credential request approved",
+                message=f"{student.user.full_name} approved your credential request",
+                activity_log_id=log.id,
+                link_entity_type="credential_request",
+                link_entity_id=request.id,
+            )
 
     db.commit()
     db.refresh(grant)

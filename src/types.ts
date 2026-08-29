@@ -242,6 +242,18 @@ export interface NotificationCounts {
   new_job_applications: number | null
 }
 
+/** One entry in the notification center — mirrors backend/app/schemas/notifications.py's NotificationResponse exactly. */
+export interface AppNotification {
+  id: string
+  title: string
+  message: string
+  link_entity_type: string | null
+  link_entity_id: string | null
+  is_read: boolean
+  read_at: string | null
+  created_at: string
+}
+
 export interface ShareCredentialPreview {
   id: string
   credential_type: CredentialType
