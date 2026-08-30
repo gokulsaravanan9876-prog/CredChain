@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # --- Sharing (Phase 6) ---
     # Base URL used to build share links (e.g. http://localhost:5173/share/verify/<token>).
-    frontend_base_url: str = "http://localhost:5173"
+    frontend_base_url: str = "https://cred-chain-five.vercel.app"
 
     # --- Institution signing-key encryption ---
     # Master secret for encrypting institution private keys before they're stored in
