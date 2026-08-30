@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { FileStack, ShieldCheck, ShieldQuestion, ListChecks, GraduationCap, Building2, AlertTriangle } from 'lucide-react'
+import { FileStack, ShieldCheck, ShieldQuestion, ListChecks, GraduationCap, Building2 } from 'lucide-react'
 import { getCompanyApplications, updateApplicationStatus, verifyCredential } from '../../lib/api'
 import { ApiError } from '../../lib/apiClient'
 import type { CompanyJobApplication, ApplicationStatus, VerifyCredentialResponse } from '../../types'
-import { PageHeader, Badge, Button, EmptyState, GlassPanel, Glow } from '../../components/ui'
+import { PageHeader, Badge, Button, EmptyState, GlassPanel, Glow, WorkflowTimeline, buildJobApplicationSteps } from '../../components/ui'
 import { Textarea } from '../../components/ui/Input'
 import { InitialsAvatar } from '../../components/ui/IconTile'
 import { SkeletonCard } from '../../components/ui/Skeleton'
@@ -172,15 +172,9 @@ export function Applications() {
                   </div>
                 </GlassPanel>
 
-                {a.status === 'rejected' && a.rejection_reason && (
-                  <div className="-mt-4 flex items-start gap-2 rounded-lg border border-bad-line bg-bad-bg px-4 py-3 text-[13px] text-bad">
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-                    <span>
-                      <span className="font-bold">Rejection reason: </span>
-                      {a.rejection_reason}
-                    </span>
-                  </div>
-                )}
+                <GlassPanel className="-mt-4 p-5">
+                  <WorkflowTimeline steps={buildJobApplicationSteps(a.history, a.status, a.rejection_reason)} />
+                </GlassPanel>
 
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
                   {/* Left column — Deterministic Eligibility + Shared Credentials (Stitch cols 1-8) */}

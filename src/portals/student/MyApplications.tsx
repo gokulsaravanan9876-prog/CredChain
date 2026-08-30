@@ -4,7 +4,7 @@ import { FileStack, Clock3, RefreshCw, Star, CheckCircle2, XCircle, Ban } from '
 import { getMyJobApplications, withdrawApplication } from '../../lib/api'
 import { ApiError } from '../../lib/apiClient'
 import type { StudentJobApplication, ApplicationStatus } from '../../types'
-import { PageHeader, Badge, Button, EmptyState, GlassPanel } from '../../components/ui'
+import { PageHeader, Badge, Button, EmptyState, GlassPanel, WorkflowTimeline, buildJobApplicationSteps } from '../../components/ui'
 import { SkeletonCard } from '../../components/ui/Skeleton'
 
 const STATUS_TONE: Record<ApplicationStatus, 'good' | 'warn' | 'bad' | 'neutral' | 'primary'> = {
@@ -32,17 +32,6 @@ const STATUS_ICON: Record<ApplicationStatus, typeof Clock3> = {
   accepted: CheckCircle2,
   rejected: XCircle,
   withdrawn: Ban,
-}
-
-/** How far through the real pipeline this status sits — drives the progress rail
- * (Stitch's "Est. 3-5 days" style bar), never a fabricated percentage. */
-const STATUS_PROGRESS: Record<ApplicationStatus, number> = {
-  applied: 25,
-  under_review: 55,
-  shortlisted: 80,
-  accepted: 100,
-  rejected: 100,
-  withdrawn: 100,
 }
 
 const WITHDRAWABLE: ApplicationStatus[] = ['applied', 'under_review', 'shortlisted']
@@ -108,23 +97,9 @@ export function MyApplications() {
                   <p className="mb-4 text-xs text-muted">{a.company_name}</p>
                 </Link>
 
-                {a.status === 'rejected' && a.rejection_reason ? (
-                  <div className="rounded-lg border border-bad-line bg-bad-bg p-3">
-                    <p className="text-[13px] text-bad">{a.rejection_reason}</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-canvas-2">
-                      <div
-                        className={`h-full rounded-full ${tone === 'good' ? 'bg-good' : tone === 'primary' ? 'bg-primary' : 'bg-line-strong'}`}
-                        style={{ width: `${STATUS_PROGRESS[a.status]}%` }}
-                      />
-                    </div>
-                    <p className="mt-2 text-right font-[family-name:var(--font-mono)] text-[11px] text-faint">
-                      Applied {new Date(a.created_at).toLocaleDateString()}
-                    </p>
-                  </>
-                )}
+                <div className="rounded-lg border border-white/5 bg-canvas-2/40 px-3.5 py-3">
+                  <WorkflowTimeline steps={buildJobApplicationSteps(a.history, a.status, a.rejection_reason)} />
+                </div>
 
                 {WITHDRAWABLE.includes(a.status) && (
                   <div className="mt-3 border-t border-white/5 pt-3">

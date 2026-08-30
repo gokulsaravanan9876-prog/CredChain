@@ -216,3 +216,21 @@ export function relativeTime(iso: string): string {
   if (days < 7) return `${days}d ago`
   return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 }
+
+/**
+ * The one consistent absolute-timestamp format for workflow timelines (credential-request and
+ * job-application status history) — "Aug 30, 2026, 4:05 PM" in the viewer's own local timezone.
+ * Backend timestamps are always ISO-8601 with a UTC offset, so `new Date(iso)` already parses
+ * correctly; `toLocaleString` here does the local-timezone conversion. Not a replacement for
+ * relativeTime() or the activity feed's own formatter — this is specifically for displaying a
+ * real, already-recorded workflow event's timestamp, never a relative/fuzzy one.
+ */
+export function formatTimelineTimestamp(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}

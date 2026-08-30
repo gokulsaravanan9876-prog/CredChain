@@ -213,6 +213,9 @@ export interface InstitutionCertificateRequest {
   fulfilled_credential_id: string | null
   created_at: string
   responded_at: string | null
+  // Set only when status === 'fulfilled' — the linked credential's own issued_at, never a
+  // separate/fabricated timestamp. null for pending/approved/rejected.
+  fulfilled_at: string | null
 }
 
 export type StudentDocumentStatus = 'unverified' | 'under_review' | 'approved' | 'rejected'
@@ -625,6 +628,14 @@ export interface CreateJobInput {
 
 export type ApplicationStatus = 'applied' | 'under_review' | 'shortlisted' | 'rejected' | 'accepted' | 'withdrawn'
 
+// One real, already-recorded status transition — built entirely from an ActivityLog row the
+// backend already writes (see job_application_service.get_application_history). Never a
+// fabricated step: a status this application never actually passed through has no entry here.
+export interface ApplicationHistoryEntry {
+  status: ApplicationStatus
+  occurred_at: string
+}
+
 export interface StudentJobApplication {
   id: string
   job_id: string
@@ -634,6 +645,7 @@ export interface StudentJobApplication {
   status: ApplicationStatus
   rejection_reason: string | null
   created_at: string
+  history: ApplicationHistoryEntry[]
 }
 
 export interface CompanyJobApplication {
@@ -648,6 +660,7 @@ export interface CompanyJobApplication {
   created_at: string
   credential_request: BackendCredentialRequest | null
   eligibility: EligibilityResult
+  history: ApplicationHistoryEntry[]
 }
 
 export interface JobAIAnalysisResult {

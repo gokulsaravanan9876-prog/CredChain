@@ -4,7 +4,7 @@ import { createCertificateRequestBatch, getMyCertificateRequests } from '../../l
 import { ApiError } from '../../lib/apiClient'
 import { useAuth } from '../../context/AuthContext'
 import type { CredentialType, InstitutionCertificateRequest, InstitutionRequestStatus } from '../../types'
-import { PageHeader, Card, Button, Badge, EmptyState } from '../../components/ui'
+import { PageHeader, Card, Button, Badge, EmptyState, WorkflowTimeline, buildCertificateRequestSteps } from '../../components/ui'
 import { SkeletonGrid } from '../../components/ui/Skeleton'
 
 const TYPE_OPTIONS: { value: CredentialType; label: string }[] = [
@@ -215,17 +215,19 @@ export function CertificateRequests() {
               {g.reason && <p className="mb-2 text-xs text-muted">{g.reason}</p>}
               <div className="space-y-2">
                 {g.items.map((r) => (
-                  <div key={r.id} className="flex items-center justify-between gap-3 rounded-lg border border-line px-3.5 py-2.5">
-                    <div>
-                      <p className="text-sm font-semibold text-ink">{typeLabel(r)}</p>
-                      <p className="text-[11px] text-faint">{r.institution_name}</p>
-                      {r.status === 'rejected' && r.rejection_reason && (
-                        <p className="mt-0.5 text-[11px] text-bad">Reason: {r.rejection_reason}</p>
-                      )}
+                  <div key={r.id} className="rounded-lg border border-line px-3.5 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-ink">{typeLabel(r)}</p>
+                        <p className="text-[11px] text-faint">{r.institution_name}</p>
+                      </div>
+                      <Badge tone={STATUS_TONE[r.status]} size="sm">
+                        {r.status}
+                      </Badge>
                     </div>
-                    <Badge tone={STATUS_TONE[r.status]} size="sm">
-                      {r.status}
-                    </Badge>
+                    <div className="mt-3 border-t border-line/60 pt-3">
+                      <WorkflowTimeline steps={buildCertificateRequestSteps(r)} />
+                    </div>
                   </div>
                 ))}
               </div>

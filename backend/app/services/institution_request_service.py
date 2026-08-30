@@ -293,6 +293,14 @@ def mark_fulfilled(db: Session, request: InstitutionCertificateRequest, credenti
 
 
 def to_response(request: InstitutionCertificateRequest) -> InstitutionCertificateRequestResponse:
+    # Deliberately gated on status rather than just "is fulfilled_credential set" — this is the
+    # one place that decides what "fulfilled_at" means, and PENDING/APPROVED/REJECTED must never
+    # report a fulfillment time even if the relationship were ever populated some other way.
+    fulfilled_at = (
+        request.fulfilled_credential.issued_at
+        if request.status == InstitutionRequestStatus.FULFILLED and request.fulfilled_credential is not None
+        else None
+    )
     return InstitutionCertificateRequestResponse(
         id=request.id,
         batch_id=request.batch_id,
@@ -309,4 +317,5 @@ def to_response(request: InstitutionCertificateRequest) -> InstitutionCertificat
         fulfilled_credential_id=request.fulfilled_credential_id,
         created_at=request.created_at,
         responded_at=request.responded_at,
+        fulfilled_at=fulfilled_at,
     )

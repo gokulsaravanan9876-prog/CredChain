@@ -4,7 +4,7 @@ import { ClipboardList, CalendarDays } from 'lucide-react'
 import { approveCertificateRequest, getInstitutionCertificateRequests, rejectCertificateRequest } from '../../lib/api'
 import { ApiError } from '../../lib/apiClient'
 import type { InstitutionCertificateRequest, InstitutionRequestStatus } from '../../types'
-import { PageHeader, Card, Button, Badge, EmptyState, CheckRow } from '../../components/ui'
+import { PageHeader, Card, Button, Badge, EmptyState, CheckRow, WorkflowTimeline, buildCertificateRequestSteps } from '../../components/ui'
 import { SkeletonCard } from '../../components/ui/Skeleton'
 
 const TYPE_LABELS: Record<string, string> = {
@@ -196,9 +196,9 @@ export function InstitutionCertificateRequests() {
                         {r.status}
                       </Badge>
                     </div>
-                    {r.status === 'rejected' && r.rejection_reason && (
-                      <p className="mt-0.5 text-[11px] text-bad">Reason: {r.rejection_reason}</p>
-                    )}
+                    <div className="mt-3 rounded-lg border border-line/60 bg-canvas-2/40 px-3 py-2.5">
+                      <WorkflowTimeline steps={buildCertificateRequestSteps(r)} />
+                    </div>
 
                     {r.status === 'pending' && (
                       <div className="mt-2">
