@@ -176,10 +176,10 @@ export function SignUp() {
         </div>
 
         {/* Access Portal card */}
-        <div className="glass-surface w-full rounded-2xl p-6">
-          <div className="mb-4 flex items-center gap-3">
+        <div className="glass-surface w-full rounded-2xl p-7">
+          <div className="mb-6 flex items-start gap-5">
             <CredentialCard3D issuer={role === 'institution' ? 'Your Institution' : role === 'verifier' ? 'Talent Network' : 'VITC'} title={ROLE_TABS.find((t) => t.role === role)!.label} subtitle="CredChain account" size="sm" className="hidden sm:block" />
-            <div>
+            <div className="-mt-0.5">
               <h2 className="text-xl font-semibold text-ink">Access Portal</h2>
               <p className="text-[13px] leading-relaxed text-muted">{copy.headline}</p>
             </div>
